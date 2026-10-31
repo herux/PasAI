@@ -1,0 +1,8 @@
+lib/
+bin/
+*.o
+*.ppu
+*.compiled
+backup/
+.DS_Store
+
