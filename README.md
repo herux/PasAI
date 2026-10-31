@@ -18,6 +18,7 @@ Models run locally and for free through [Ollama](https://ollama.com).
 - Tool calling and an agent loop: tools are plain Pascal functions; arguments are validated before anything runs
 - A record-based JSON schema builder
 - An evaluation harness: JSON datasets, deterministic checks, repeated runs per model, pass-rate tables and CSV output
+- Retrieval-augmented generation: paragraph chunking, BM25, vector search over Ollama embeddings, hybrid ranking with Reciprocal Rank Fusion, and prompts with numbered citations; retrieval evaluation with hit@k and MRR
 - No third-party dependencies: only the Free Pascal RTL and FCL
 
 ## Roadmap
@@ -25,7 +26,7 @@ Models run locally and for free through [Ollama](https://ollama.com).
 1. Ollama client: chat and streaming *(done)*
 2. Provider abstraction and structured output *(done)*, embeddings
 3. Tool calling and agent loop *(done)*
-4. RAG: chunking, BM25, vector store, hybrid retrieval
+4. RAG: chunking, BM25, vector store, hybrid retrieval *(done)*
 5. Evaluation harness *(done, ahead of step 4)*
 6. Conversation memory, state machines, guardrails, human handover
 7. PostgreSQL persistence
@@ -38,6 +39,10 @@ Models run locally and for free through [Ollama](https://ollama.com).
 - At least one chat model:
   ```sh
   ollama pull qwen2.5:7b-instruct   # default model used by the examples
+  ```
+- For the RAG example, an embedding model:
+  ```sh
+  ollama pull bge-m3
   ```
   7–8B models (about 5 GB with Ollama's default quantization) run comfortably on
   a machine with 16 GB of RAM. Browse models at https://ollama.com/library
@@ -56,6 +61,8 @@ Free Pascal 3.2.2.
 ./bin/extract            # free text to a Pascal record via JSON schema
 ./bin/agent              # a model using Pascal tools for math and dates
 ./bin/runeval -p v1,v2 qwen2.5:7b-instruct llama3.1   # compare models x prompt versions
+./bin/rag                # answers from documents, with citations (needs: ollama pull bge-m3)
+./bin/rageval            # retrieval quality (hit@k, MRR) for several configurations
 ```
 
 ## Usage

@@ -1,0 +1,21 @@
+{
+  "description": "Retrieval cases for the PasDrone P1 documents. Each query lists text the right chunk contains.",
+  "cases": [
+    {"id": "flight-plus-id", "query": "Berapa lama PasDrone P1 bisa terbang dengan baterai Plus?", "expect": ["42 menit"]},
+    {"id": "charge-en",      "query": "How long does it take to charge the standard battery?", "expect": ["70 menit"]},
+    {"id": "cold-id",        "query": "Bolehkah mengisi baterai saat cuaca dingin?", "expect": ["di bawah 5"]},
+    {"id": "storage-en",     "query": "How should I store the battery if I won't fly for a few weeks?", "expect": ["40 sampai 60 persen"]},
+    {"id": "weight-id",      "query": "Berapa berat drone kalau pakai baterai Plus?", "expect": ["290 g"]},
+    {"id": "e07-en",         "query": "My drone shows E07. What should I do?", "expect": ["E07: Motor overload"]},
+    {"id": "e12-id",         "query": "Drone tidak mau lepas landas dan muncul kode E12", "expect": ["sel menyeimbangkan diri"]},
+    {"id": "gps-en",         "query": "The app says not enough satellites, can I take off?", "expect": ["E15"]},
+    {"id": "lake-id",        "query": "Apakah garansi menanggung drone yang jatuh ke danau?", "expect": ["terkena air"]},
+    {"id": "water-plan-en",  "query": "Is there a plan that covers water damage?", "expect": ["PasCare"]},
+    {"id": "claim-id",       "query": "Dokumen apa yang perlu dibawa untuk klaim garansi?", "expect": ["bukti pembelian"]},
+    {"id": "compass-id",     "query": "Bagaimana cara kalibrasi kompas?", "expect": ["Calibrate Compass"]},
+    {"id": "imu-time-id",    "query": "Berapa lama proses kalibrasi IMU?", "expect": ["about 5 minutes"]},
+    {"id": "horizon-en",     "query": "The horizon in my videos looks tilted", "expect": ["Gimbal Auto Calibration"]},
+    {"id": "sport-id",       "query": "Kecepatan maksimal mode Sport berapa?", "expect": ["16 m/s"]},
+    {"id": "range-id",       "query": "Seberapa jauh jangkauan remote controller?", "expect": ["6 km"]}
+  ]
+}

@@ -17,6 +17,10 @@ unit PasAI.Ollama;
     result   a message {"role":"tool","content":"...","tool_name":"x"}
   Unlike OpenAI, Ollama sends "arguments" as a JSON object, not as a string.
 
+  Embeddings:
+    POST /api/embed   body: {"model", "input": ["text", ...]}
+    response          {"embeddings": [[0.01, -0.2, ...], ...]}
+
   Note: this header uses parenthesis-star comment delimiters because the JSON
   examples contain braces, which would end a brace comment early. *)
 
@@ -25,7 +29,7 @@ unit PasAI.Ollama;
 interface
 
 uses
-  Classes, SysUtils, PasAI.Types, PasAI.Provider;
+  Classes, SysUtils, PasAI.Types, PasAI.Provider, PasAI.Embed;
 
 const
   OLLAMA_DEFAULT_URL = 'http://localhost:11434';
@@ -63,10 +67,28 @@ type
     property TimeoutMs: Integer read FTimeoutMs write FTimeoutMs;
   end;
 
+  { Embeddings through Ollama's /api/embed, e.g. with bge-m3, which is
+    multilingual and works well for Indonesian. Texts are sent in batches. }
+  TOllamaEmbedder = class(TEmbedder)
+  private
+    FBaseURL: string;
+    FTimeoutMs: Integer;
+    FBatchSize: Integer;
+    function EmbedBatch(const ATexts: array of string; AFrom, ACount: Integer): TVectors;
+  public
+    constructor Create(const AModel: string; const ABaseURL: string = OLLAMA_DEFAULT_URL);
+    function Name: string; override;
+    function Embed(const ATexts: array of string): TVectors; override;
+    property BaseURL: string read FBaseURL write FBaseURL;
+    property TimeoutMs: Integer read FTimeoutMs write FTimeoutMs;
+    { Texts per request. Larger batches are faster but use more memory. }
+    property BatchSize: Integer read FBatchSize write FBatchSize;
+  end;
+
 implementation
 
 uses
-  fpjson, jsonparser, PasAI.Http;
+  Math, fpjson, jsonparser, PasAI.Http;
 
 const
   MSG_REQUEST_FAILED =
@@ -394,6 +416,99 @@ begin
   finally
     Sink.Free;
     State.Free;
+  end;
+end;
+
+
+{ TOllamaEmbedder }
+
+constructor TOllamaEmbedder.Create(const AModel: string; const ABaseURL: string);
+begin
+  inherited Create(AModel);
+  FBaseURL := ABaseURL;
+  FTimeoutMs := OLLAMA_DEFAULT_TIMEOUT_MS;
+  FBatchSize := 32;
+end;
+
+function TOllamaEmbedder.Name: string;
+begin
+  Result := 'ollama';
+end;
+
+function TOllamaEmbedder.EmbedBatch(const ATexts: array of string;
+  AFrom, ACount: Integer): TVectors;
+var
+  Req, O: TJSONObject;
+  Input: TJSONArray;
+  Body: RawByteString;
+  R: THttpResult;
+  D, Row: TJSONData;
+  URL: string;
+  I, J: Integer;
+begin
+  Req := TJSONObject.Create;
+  try
+    Req.Add('model', UTF8String(Model));
+    Input := TJSONArray.Create;
+    Req.Add('input', Input);
+    for I := AFrom to AFrom + ACount - 1 do
+      Input.Add(UTF8String(ATexts[I]));
+    Body := Req.AsJSON;
+  finally
+    Req.Free;
+  end;
+
+  URL := FBaseURL;
+  while (URL <> '') and (URL[Length(URL)] = '/') do
+    SetLength(URL, Length(URL) - 1);
+  try
+    R := HttpPostJSON(URL + '/api/embed', Body, FTimeoutMs);
+  except
+    on E: Exception do
+      raise EOllamaError.CreateFmt(MSG_REQUEST_FAILED, [FBaseURL, E.Message]);
+  end;
+
+  O := ParseObject(R.Body);
+  try
+    RaiseIfOllamaError(O);
+    if R.StatusCode <> 200 then
+      raise EOllamaError.CreateFmt('Ollama returned HTTP %d', [R.StatusCode]);
+    D := O.Find('embeddings');
+    if (D = nil) or (D.JSONType <> jtArray) then
+      raise EOllamaError.Create('Ollama response has no embeddings');
+
+    SetLength(Result, D.Count);
+    for I := 0 to D.Count - 1 do
+    begin
+      Row := D.Items[I];
+      if Row.JSONType <> jtArray then
+        raise EOllamaError.Create('Embedding is not an array');
+      SetLength(Result[I], Row.Count);
+      for J := 0 to Row.Count - 1 do
+        Result[I][J] := Row.Items[J].AsFloat;
+    end;
+  finally
+    O.Free;
+  end;
+end;
+
+function TOllamaEmbedder.Embed(const ATexts: array of string): TVectors;
+var
+  Batch: TVectors;
+  From, Count, I: Integer;
+begin
+  SetLength(Result, Length(ATexts));
+  From := 0;
+  while From < Length(ATexts) do
+  begin
+    Count := Min(Max(FBatchSize, 1), Length(ATexts) - From);
+    Batch := EmbedBatch(ATexts, From, Count);
+    if Length(Batch) <> Count then
+      raise EOllamaError.CreateFmt('Ollama returned %d embeddings for %d texts',
+        [Length(Batch), Count]);
+    for I := 0 to Count - 1 do
+      Result[From + I] := Batch[I];
+    Inc(From, Count);
   end;
 end;
 
