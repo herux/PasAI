@@ -1,6 +1,7 @@
 lib/
 bin/
 results/
+data/
 *.o
 *.ppu
 *.compiled

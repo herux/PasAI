@@ -19,6 +19,7 @@ Models run locally and for free through [Ollama](https://ollama.com).
 - A record-based JSON schema builder
 - An evaluation harness: JSON datasets, deterministic checks, repeated runs per model, pass-rate tables and CSV output
 - Retrieval-augmented generation: paragraph chunking, BM25, vector search over Ollama embeddings, hybrid ranking with Reciprocal Rank Fusion, and prompts with numbered citations; retrieval evaluation with hit@k and MRR
+- A conversational companion: long-term member memory, a state machine for the conversation flow, input and output guardrails, and handover to a human
 - No third-party dependencies: only the Free Pascal RTL and FCL
 
 ## Roadmap
@@ -28,7 +29,7 @@ Models run locally and for free through [Ollama](https://ollama.com).
 3. Tool calling and agent loop *(done)*
 4. RAG: chunking, BM25, vector store, hybrid retrieval *(done)*
 5. Evaluation harness *(done, ahead of step 4)*
-6. Conversation memory, state machines, guardrails, human handover
+6. Conversation memory, state machines, guardrails, human handover *(done)*
 7. PostgreSQL persistence
 8. Delphi port
 
@@ -63,6 +64,7 @@ Free Pascal 3.2.2.
 ./bin/runeval -p v1,v2 qwen2.5:7b-instruct llama3.1   # compare models x prompt versions
 ./bin/rag                # answers from documents, with citations (needs: ollama pull bge-m3)
 ./bin/rageval            # retrieval quality (hit@k, MRR) for several configurations
+./bin/companion heru     # a coaching companion that remembers you between sessions
 ```
 
 ## Usage
