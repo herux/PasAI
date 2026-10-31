@@ -1,0 +1,11 @@
+lib/
+bin/
+*.o
+*.ppu
+*.compiled
+backup/
+.DS_Store
+
+# Local notes, not published
+ARCHITECTURE.md
+CLAUDE.md
