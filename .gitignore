@@ -6,3 +6,4 @@ bin/
 backup/
 .DS_Store
 
+.fuse_hidden*

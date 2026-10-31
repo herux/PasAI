@@ -14,12 +14,13 @@ Models run locally and for free through [Ollama](https://ollama.com).
 - Streaming without threads, built on a line-splitting `TStream`
 - Provider abstraction (`TLLMProvider`): application code is independent of the backend
 - Mock provider for deterministic tests and prompt inspection without a model
+- Structured output: JSON schema validation with automatic retry and feedback to the model
 - No third-party dependencies: only the Free Pascal RTL and FCL
 
 ## Roadmap
 
 1. Ollama client: chat and streaming *(done)*
-2. Provider abstraction *(done)*, structured output (JSON schema), embeddings
+2. Provider abstraction and structured output *(done)*, embeddings
 3. Tool calling and agent loop
 4. RAG: chunking, BM25, vector store, hybrid retrieval
 5. Evaluation harness: datasets, precision/recall, prompt comparison
@@ -49,6 +50,7 @@ Free Pascal 3.2.2.
 ./bin/chat                # interactive chat with history
 ./bin/chat llama3.1       # use a different model
 ./bin/providers          # same code running on a mock and on Ollama
+./bin/extract            # free text to a Pascal record via JSON schema
 ```
 
 ## Usage
