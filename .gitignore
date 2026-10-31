@@ -9,3 +9,4 @@ backup/
 # Local notes, not published
 ARCHITECTURE.md
 CLAUDE.md
+.fuse_hidden*

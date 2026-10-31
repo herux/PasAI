@@ -32,7 +32,10 @@ type
     FBaseURL: string;
     FTimeoutMs: Integer;
     function Endpoint(const APath: string): string;
-    function BuildChatBody(const AMessages: TChatMessages; AStream: Boolean): RawByteString;
+    { AFormat: a JSON schema as text, or empty for free-form text. }
+    function BuildChatBody(const AMessages: TChatMessages; AStream: Boolean;
+      const AFormat: UTF8String): RawByteString;
+    function DoChat(const AMessages: TChatMessages; const AFormat: UTF8String): string;
   public
     constructor Create(const AModel: string; const ABaseURL: string = OLLAMA_DEFAULT_URL);
 
@@ -40,6 +43,10 @@ type
     function Chat(const AMessages: TChatMessages): string; override;
     { Ollama streams NDJSON, so this overrides the single-chunk default. }
     function ChatStream(const AMessages: TChatMessages; AOnChunk: TTextChunkProc): string; override;
+    { Sends the schema both in the prompt and as Ollama's "format" field.
+      With "format", Ollama constrains decoding so the model can only emit
+      tokens that keep the output valid against the schema. }
+    function ChatJSON(const AMessages: TChatMessages; const ASchema: UTF8String): string; override;
 
     property BaseURL: string read FBaseURL write FBaseURL;
     property TimeoutMs: Integer read FTimeoutMs write FTimeoutMs;
@@ -153,7 +160,7 @@ begin
 end;
 
 function TOllamaClient.BuildChatBody(const AMessages: TChatMessages;
-  AStream: Boolean): RawByteString;
+  AStream: Boolean; const AFormat: UTF8String): RawByteString;
 var
   Req, M, Opts: TJSONObject;
   Arr: TJSONArray;
@@ -163,6 +170,8 @@ begin
   try
     Req.Add('model', UTF8String(Model));
     Req.Add('stream', AStream);
+    if AFormat <> '' then
+      Req.Add('format', GetJSON(AFormat));   // the schema as a JSON object, not a string
 
     Arr := TJSONArray.Create;
     Req.Add('messages', Arr);           // Req now owns Arr
@@ -187,14 +196,19 @@ begin
   end;
 end;
 
-function TOllamaClient.Chat(const AMessages: TChatMessages): string;
+function TOllamaClient.DoChat(const AMessages: TChatMessages;
+  const AFormat: UTF8String): string;
 var
+  Body: RawByteString;
   R: THttpResult;
   O: TJSONObject;
   D: TJSONData;
 begin
+  { Built outside the try below, so an invalid schema is reported as such
+    and not as a connection problem. }
+  Body := BuildChatBody(AMessages, False, AFormat);
   try
-    R := HttpPostJSON(Endpoint('/api/chat'), BuildChatBody(AMessages, False), FTimeoutMs);
+    R := HttpPostJSON(Endpoint('/api/chat'), Body, FTimeoutMs);
   except
     on E: Exception do
       raise EOllamaError.CreateFmt(MSG_REQUEST_FAILED, [FBaseURL, E.Message]);
@@ -214,6 +228,17 @@ begin
   end;
 end;
 
+function TOllamaClient.Chat(const AMessages: TChatMessages): string;
+begin
+  Result := DoChat(AMessages, '');
+end;
+
+function TOllamaClient.ChatJSON(const AMessages: TChatMessages;
+  const ASchema: UTF8String): string;
+begin
+  Result := DoChat(WithSchemaInstruction(AMessages, ASchema), ASchema);
+end;
+
 function TOllamaClient.ChatStream(const AMessages: TChatMessages;
   AOnChunk: TTextChunkProc): string;
 var
@@ -226,7 +251,7 @@ begin
   try
     try
       Status := HttpPostJSONToStream(Endpoint('/api/chat'),
-        BuildChatBody(AMessages, True), Sink, FTimeoutMs);
+        BuildChatBody(AMessages, True, ''), Sink, FTimeoutMs);
     except
       on E: EPasAIError do
         raise;   // error reported by Ollama itself (e.g. unknown model): pass it on unchanged

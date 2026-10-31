@@ -23,6 +23,11 @@ type
   private
     FModel: string;
     FTemperature: Double;
+  protected
+    { Returns a copy of AMessages with an instruction to answer in JSON
+      matching ASchema, merged into the system message (or added as one). }
+    function WithSchemaInstruction(const AMessages: TChatMessages;
+      const ASchema: UTF8String): TChatMessages;
   public
     constructor Create(const AModel: string);
 
@@ -41,6 +46,17 @@ type
       streaming is used. Backends that can stream override this. }
     function ChatStream(const AMessages: TChatMessages;
       AOnChunk: TTextChunkProc): string; virtual;
+
+    { Ask for a reply that is a JSON object conforming to ASchema (a JSON
+      Schema document as text). Returns the raw reply text; it is NOT
+      validated here. Use ChatStructured in PasAI.Structured for parsing,
+      validation and retries.
+
+      The default implementation only describes the schema in the prompt.
+      Backends that support constrained decoding (Ollama "format") override
+      this to also enforce the schema while the model generates. }
+    function ChatJSON(const AMessages: TChatMessages;
+      const ASchema: UTF8String): string; virtual;
 
     { Shortcut: a single question with no history. }
     function Ask(const APrompt: string): string;
@@ -65,6 +81,37 @@ begin
   Result := Chat(AMessages);
   if (Result <> '') and Assigned(AOnChunk) then
     AOnChunk(Result);
+end;
+
+function TLLMProvider.WithSchemaInstruction(const AMessages: TChatMessages;
+  const ASchema: UTF8String): TChatMessages;
+var
+  Instruction: string;
+  I: Integer;
+begin
+  Instruction :=
+    'Respond with a single JSON object that conforms to the JSON schema below. ' +
+    'Output only the JSON object: no explanation, no markdown, no code fences.' +
+    LineEnding + 'Schema:' + LineEnding + string(ASchema);
+
+  if (Length(AMessages) > 0) and (AMessages[0].Role = ROLE_SYSTEM) then
+  begin
+    Result := Copy(AMessages);
+    Result[0].Content := Result[0].Content + LineEnding + LineEnding + Instruction;
+  end
+  else
+  begin
+    SetLength(Result, Length(AMessages) + 1);
+    Result[0] := ChatMessage(ROLE_SYSTEM, Instruction);
+    for I := 0 to High(AMessages) do
+      Result[I + 1] := AMessages[I];
+  end;
+end;
+
+function TLLMProvider.ChatJSON(const AMessages: TChatMessages;
+  const ASchema: UTF8String): string;
+begin
+  Result := Chat(WithSchemaInstruction(AMessages, ASchema));
 end;
 
 function TLLMProvider.Ask(const APrompt: string): string;
