@@ -3,12 +3,19 @@ unit PasAI.Ollama;
 (* Client for Ollama (https://ollama.com), a local LLM server.
 
   Endpoint used:
-    POST /api/chat   body: {"model", "messages", "stream", "options"}
+    POST /api/chat   body: {"model", "messages", "stream", "format", "tools", "options"}
 
   Non-streaming : a single JSON object {"message":{"role","content"}, "done":true, ...}
   Streaming     : NDJSON, one object per line, each carrying a chunk of
                   "message.content"; the last object has "done": true.
   Errors        : {"error": "message"} (e.g. the model has not been pulled).
+
+  Tool calling:
+    request  "tools": [{"type":"function","function":{"name","description","parameters"}}]
+    response "message": {"role":"assistant","content":"",
+                         "tool_calls":[{"function":{"name":"x","arguments":{...}}}]}
+    result   a message {"role":"tool","content":"...","tool_name":"x"}
+  Unlike OpenAI, Ollama sends "arguments" as a JSON object, not as a string.
 
   Note: this header uses parenthesis-star comment delimiters because the JSON
   examples contain braces, which would end a brace comment early. *)
@@ -34,8 +41,9 @@ type
     function Endpoint(const APath: string): string;
     { AFormat: a JSON schema as text, or empty for free-form text. }
     function BuildChatBody(const AMessages: TChatMessages; AStream: Boolean;
-      const AFormat: UTF8String): RawByteString;
-    function DoChat(const AMessages: TChatMessages; const AFormat: UTF8String): string;
+      const AFormat: UTF8String; const ATools: TToolSpecs): RawByteString;
+    function DoChat(const AMessages: TChatMessages; const AFormat: UTF8String;
+      const ATools: TToolSpecs): TChatMessage;
   public
     constructor Create(const AModel: string; const ABaseURL: string = OLLAMA_DEFAULT_URL);
 
@@ -47,6 +55,9 @@ type
       With "format", Ollama constrains decoding so the model can only emit
       tokens that keep the output valid against the schema. }
     function ChatJSON(const AMessages: TChatMessages; const ASchema: UTF8String): string; override;
+    { Native tool calling through the "tools" field. }
+    function ChatWithTools(const AMessages: TChatMessages;
+      const ATools: TToolSpecs): TChatMessage; override;
 
     property BaseURL: string read FBaseURL write FBaseURL;
     property TimeoutMs: Integer read FTimeoutMs write FTimeoutMs;
@@ -84,6 +95,101 @@ begin
   E := O.Find('error');
   if E <> nil then
     raise EOllamaError.Create('Ollama: ' + E.AsString);
+end;
+
+{ Parse a JSON object given as text; an empty text becomes an empty object. }
+function JSONObjectFromText(const AText: string): TJSONData;
+begin
+  if Trim(AText) = '' then
+    Result := TJSONObject.Create
+  else
+    Result := GetJSON(UTF8String(AText));
+end;
+
+{ Convert Ollama's "message" object into a TChatMessage. }
+function MessageFromJSON(AMsg: TJSONObject): TChatMessage;
+var
+  D, Fn, Args, Id: TJSONData;
+  Calls: TJSONArray;
+  I: Integer;
+begin
+  Result := ChatMessage(ROLE_ASSISTANT, '');
+
+  D := AMsg.Find('content');
+  if (D <> nil) and not D.IsNull then
+    Result.Content := D.AsString;
+
+  D := AMsg.Find('tool_calls');
+  if (D = nil) or (D.JSONType <> jtArray) then
+    Exit;
+
+  Calls := TJSONArray(D);
+  SetLength(Result.ToolCalls, Calls.Count);
+  for I := 0 to Calls.Count - 1 do
+  begin
+    Result.ToolCalls[I].Id := '';
+    Result.ToolCalls[I].Name := '';
+    Result.ToolCalls[I].Arguments := '{}';
+    if Calls.Items[I].JSONType <> jtObject then
+      Continue;
+
+    Id := TJSONObject(Calls.Items[I]).Find('id');
+    if (Id <> nil) and (Id.JSONType = jtString) then
+      Result.ToolCalls[I].Id := Id.AsString;
+
+    Fn := TJSONObject(Calls.Items[I]).Find('function');
+    if (Fn = nil) or (Fn.JSONType <> jtObject) then
+      Continue;
+
+    D := TJSONObject(Fn).Find('name');
+    if D <> nil then
+      Result.ToolCalls[I].Name := D.AsString;
+
+    { Ollama sends an object; accept a string too, as OpenAI-style servers do. }
+    Args := TJSONObject(Fn).Find('arguments');
+    if Args <> nil then
+      if Args.JSONType = jtString then
+        Result.ToolCalls[I].Arguments := Args.AsString
+      else
+        Result.ToolCalls[I].Arguments := Args.AsJSON;
+  end;
+end;
+
+{ Convert a TChatMessage into Ollama's message JSON. }
+function MessageToJSON(const AMsg: TChatMessage): TJSONObject;
+var
+  Calls: TJSONArray;
+  Call, Fn: TJSONObject;
+  I: Integer;
+begin
+  Result := TJSONObject.Create;
+  try
+    Result.Add('role', UTF8String(AMsg.Role));
+    Result.Add('content', UTF8String(AMsg.Content));
+
+    if Length(AMsg.ToolCalls) > 0 then
+    begin
+      Calls := TJSONArray.Create;
+      Result.Add('tool_calls', Calls);
+      for I := 0 to High(AMsg.ToolCalls) do
+      begin
+        Call := TJSONObject.Create;
+        Calls.Add(Call);
+        if AMsg.ToolCalls[I].Id <> '' then
+          Call.Add('id', UTF8String(AMsg.ToolCalls[I].Id));
+        Fn := TJSONObject.Create;
+        Call.Add('function', Fn);
+        Fn.Add('name', UTF8String(AMsg.ToolCalls[I].Name));
+        Fn.Add('arguments', JSONObjectFromText(AMsg.ToolCalls[I].Arguments));
+      end;
+    end;
+
+    if AMsg.ToolName <> '' then
+      Result.Add('tool_name', UTF8String(AMsg.ToolName));
+  except
+    Result.Free;
+    raise;
+  end;
 end;
 
 { TOllamaStreamState: collects the streaming result line by line. }
@@ -160,9 +266,9 @@ begin
 end;
 
 function TOllamaClient.BuildChatBody(const AMessages: TChatMessages;
-  AStream: Boolean; const AFormat: UTF8String): RawByteString;
+  AStream: Boolean; const AFormat: UTF8String; const ATools: TToolSpecs): RawByteString;
 var
-  Req, M, Opts: TJSONObject;
+  Req, Opts, Tool, Fn: TJSONObject;
   Arr: TJSONArray;
   I: Integer;
 begin
@@ -176,11 +282,23 @@ begin
     Arr := TJSONArray.Create;
     Req.Add('messages', Arr);           // Req now owns Arr
     for I := 0 to High(AMessages) do
+      Arr.Add(MessageToJSON(AMessages[I]));
+
+    if Length(ATools) > 0 then
     begin
-      M := TJSONObject.Create;
-      Arr.Add(M);                       // Arr now owns M
-      M.Add('role', UTF8String(AMessages[I].Role));
-      M.Add('content', UTF8String(AMessages[I].Content));
+      Arr := TJSONArray.Create;
+      Req.Add('tools', Arr);
+      for I := 0 to High(ATools) do
+      begin
+        Tool := TJSONObject.Create;
+        Arr.Add(Tool);
+        Tool.Add('type', UTF8String('function'));   // cast avoids an ambiguous overload
+        Fn := TJSONObject.Create;
+        Tool.Add('function', Fn);
+        Fn.Add('name', UTF8String(ATools[I].Name));
+        Fn.Add('description', UTF8String(ATools[I].Description));
+        Fn.Add('parameters', GetJSON(ATools[I].ParametersSchema));
+      end;
     end;
 
     if Temperature >= 0 then
@@ -197,7 +315,7 @@ begin
 end;
 
 function TOllamaClient.DoChat(const AMessages: TChatMessages;
-  const AFormat: UTF8String): string;
+  const AFormat: UTF8String; const ATools: TToolSpecs): TChatMessage;
 var
   Body: RawByteString;
   R: THttpResult;
@@ -206,7 +324,7 @@ var
 begin
   { Built outside the try below, so an invalid schema is reported as such
     and not as a connection problem. }
-  Body := BuildChatBody(AMessages, False, AFormat);
+  Body := BuildChatBody(AMessages, False, AFormat, ATools);
   try
     R := HttpPostJSON(Endpoint('/api/chat'), Body, FTimeoutMs);
   except
@@ -219,10 +337,10 @@ begin
     RaiseIfOllamaError(O);
     if R.StatusCode <> 200 then
       raise EOllamaError.CreateFmt('Ollama returned HTTP %d', [R.StatusCode]);
-    D := O.FindPath('message.content');
-    if D = nil then
-      raise EOllamaError.Create('Ollama response has no message.content');
-    Result := D.AsString;
+    D := O.Find('message');
+    if (D = nil) or (D.JSONType <> jtObject) then
+      raise EOllamaError.Create('Ollama response has no message');
+    Result := MessageFromJSON(TJSONObject(D));
   finally
     O.Free;
   end;
@@ -230,13 +348,19 @@ end;
 
 function TOllamaClient.Chat(const AMessages: TChatMessages): string;
 begin
-  Result := DoChat(AMessages, '');
+  Result := DoChat(AMessages, '', nil).Content;
 end;
 
 function TOllamaClient.ChatJSON(const AMessages: TChatMessages;
   const ASchema: UTF8String): string;
 begin
-  Result := DoChat(WithSchemaInstruction(AMessages, ASchema), ASchema);
+  Result := DoChat(WithSchemaInstruction(AMessages, ASchema), ASchema, nil).Content;
+end;
+
+function TOllamaClient.ChatWithTools(const AMessages: TChatMessages;
+  const ATools: TToolSpecs): TChatMessage;
+begin
+  Result := DoChat(AMessages, '', ATools);
 end;
 
 function TOllamaClient.ChatStream(const AMessages: TChatMessages;
@@ -245,13 +369,14 @@ var
   State: TOllamaStreamState;
   Sink: TLineSinkStream;
   Status: Integer;
+  Body: RawByteString;
 begin
+  Body := BuildChatBody(AMessages, True, '', nil);
   State := TOllamaStreamState.Create(AOnChunk);
   Sink := TLineSinkStream.Create(State.HandleLine);
   try
     try
-      Status := HttpPostJSONToStream(Endpoint('/api/chat'),
-        BuildChatBody(AMessages, True, ''), Sink, FTimeoutMs);
+      Status := HttpPostJSONToStream(Endpoint('/api/chat'), Body, Sink, FTimeoutMs);
     except
       on E: EPasAIError do
         raise;   // error reported by Ollama itself (e.g. unknown model): pass it on unchanged

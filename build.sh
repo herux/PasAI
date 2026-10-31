@@ -1,6 +1,7 @@
 #!/bin/sh
 # Compile every example with Free Pascal.
 # Output: bin/<program-name>; compiled units go to lib/
+# Units shared by several examples live in examples/common/
 #
 # Compiler selection:
 #   - FPC=/path/to/compiler ./build.sh   uses that compiler
@@ -22,5 +23,5 @@ echo "Using compiler: $FPC"
 mkdir -p lib bin
 for f in examples/*/*.lpr; do
   echo "== $f"
-  "$FPC" -Mdelphi -Fusrc -FUlib -FEbin "$f"
+  "$FPC" -Mdelphi -Fusrc -Fuexamples/common -FUlib -FEbin "$f"
 done

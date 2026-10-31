@@ -58,6 +58,16 @@ type
     function ChatJSON(const AMessages: TChatMessages;
       const ASchema: UTF8String): string; virtual;
 
+    { Send the conversation together with the tools the model may use.
+      Returns the assistant message: either a final answer in Content, or
+      one or more ToolCalls for the caller to execute. Running the tools
+      and looping is the job of PasAI.Agent, not of the provider.
+
+      The default implementation supports no tools: with an empty ATools it
+      behaves like Chat, otherwise it raises. }
+    function ChatWithTools(const AMessages: TChatMessages;
+      const ATools: TToolSpecs): TChatMessage; virtual;
+
     { Shortcut: a single question with no history. }
     function Ask(const APrompt: string): string;
 
@@ -112,6 +122,14 @@ function TLLMProvider.ChatJSON(const AMessages: TChatMessages;
   const ASchema: UTF8String): string;
 begin
   Result := Chat(WithSchemaInstruction(AMessages, ASchema));
+end;
+
+function TLLMProvider.ChatWithTools(const AMessages: TChatMessages;
+  const ATools: TToolSpecs): TChatMessage;
+begin
+  if Length(ATools) > 0 then
+    raise EPasAIError.CreateFmt('Provider "%s" does not support tool calling', [Name]);
+  Result := ChatMessage(ROLE_ASSISTANT, Chat(AMessages));
 end;
 
 function TLLMProvider.Ask(const APrompt: string): string;

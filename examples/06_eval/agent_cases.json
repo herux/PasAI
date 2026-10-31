@@ -1,0 +1,48 @@
+{
+  "description": "Agent with the demo tools: calculate, get_current_date, add_days",
+  "cases": [
+    {
+      "id": "math-chain",
+      "input": "What is 1234.5 multiplied by 987.6, then divided by 3?",
+      "checks": [
+        {"type": "contains_any", "values": ["406397.4", "406,397.4", "406.397,4"]},
+        {"type": "tool_called", "tool": "calculate", "args": {"op": "multiply"}},
+        {"type": "tool_called", "tool": "calculate", "args": {"op": "divide"}},
+        {"type": "not_contains", "values": ["\"name\":"]}
+      ]
+    },
+    {
+      "id": "percent-id",
+      "input": "Berapa 15% dari 2.450.000?",
+      "checks": [
+        {"type": "contains_any", "values": ["367500", "367.500", "367,500"]},
+        {"type": "tool_called", "tool": "calculate"},
+        {"type": "not_contains", "values": ["\"name\":"]}
+      ]
+    },
+    {
+      "id": "date-100",
+      "input": "Hari apa 100 hari lagi dari hari ini?",
+      "checks": [
+        {"type": "tool_called", "tool": "add_days", "args": {"date": "$TODAY", "days": 100}},
+        {"type": "not_contains", "values": ["\"name\":"]}
+      ]
+    },
+    {
+      "id": "date-back",
+      "input": "What was the date 30 days ago?",
+      "checks": [
+        {"type": "tool_called", "tool": "add_days", "args": {"date": "$TODAY", "days": -30}},
+        {"type": "not_contains", "values": ["\"name\":"]}
+      ]
+    },
+    {
+      "id": "greeting",
+      "input": "Halo! Apa kabar?",
+      "checks": [
+        {"type": "no_tool_calls"},
+        {"type": "not_contains", "values": ["tidak bisa membantu", "cannot help"]}
+      ]
+    }
+  ]
+}
