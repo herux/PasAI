@@ -15,15 +15,18 @@ Models run locally and for free through [Ollama](https://ollama.com).
 - Provider abstraction (`TLLMProvider`): application code is independent of the backend
 - Mock provider for deterministic tests and prompt inspection without a model
 - Structured output: JSON schema validation with automatic retry and feedback to the model
+- Tool calling and an agent loop: tools are plain Pascal functions; arguments are validated before anything runs
+- A record-based JSON schema builder
+- An evaluation harness: JSON datasets, deterministic checks, repeated runs per model, pass-rate tables and CSV output
 - No third-party dependencies: only the Free Pascal RTL and FCL
 
 ## Roadmap
 
 1. Ollama client: chat and streaming *(done)*
 2. Provider abstraction and structured output *(done)*, embeddings
-3. Tool calling and agent loop
+3. Tool calling and agent loop *(done)*
 4. RAG: chunking, BM25, vector store, hybrid retrieval
-5. Evaluation harness: datasets, precision/recall, prompt comparison
+5. Evaluation harness *(done, ahead of step 4)*
 6. Conversation memory, state machines, guardrails, human handover
 7. PostgreSQL persistence
 8. Delphi port
@@ -51,6 +54,8 @@ Free Pascal 3.2.2.
 ./bin/chat llama3.1       # use a different model
 ./bin/providers          # same code running on a mock and on Ollama
 ./bin/extract            # free text to a Pascal record via JSON schema
+./bin/agent              # a model using Pascal tools for math and dates
+./bin/runeval -p v1,v2 qwen2.5:7b-instruct llama3.1   # compare models x prompt versions
 ```
 
 ## Usage
@@ -90,5 +95,6 @@ end.
 ```
 src/        library units (PasAI.*)
 examples/   example programs, one folder per concept
+examples/common/   units shared by several examples
 lib/ bin/   build output (not tracked)
 ```
