@@ -27,12 +27,18 @@ begin
   Result := FormatDateTime('yyyy-mm-dd (dddd)', Date);
 end;
 
+{ Errors meant for the model are raised as EToolError; PasAI.Tools hides
+  the text of any other exception. }
 function ParseISODate(const S: string): TDateTime;
+var
+  Y, M, D: Integer;
 begin
-  if (Length(S) <> 10) or (S[5] <> '-') or (S[8] <> '-') then
-    raise Exception.CreateFmt('date "%s" is not in YYYY-MM-DD format', [S]);
-  Result := EncodeDate(StrToInt(Copy(S, 1, 4)), StrToInt(Copy(S, 6, 2)),
-    StrToInt(Copy(S, 9, 2)));
+  if (Length(S) <> 10) or (S[5] <> '-') or (S[8] <> '-') or
+     not TryStrToInt(Copy(S, 1, 4), Y) or not TryStrToInt(Copy(S, 6, 2), M) or
+     not TryStrToInt(Copy(S, 9, 2), D) then
+    raise EToolError.CreateFmt('date "%s" is not in YYYY-MM-DD format', [S]);
+  if not TryEncodeDate(Y, M, D, Result) then
+    raise EToolError.CreateFmt('"%s" is not a valid date', [S]);
 end;
 
 function ToolAddDays(AArgs: TJSONObject): string;
@@ -58,7 +64,7 @@ begin
   else
   begin
     if B = 0 then
-      raise Exception.Create('division by zero');
+      raise EToolError.Create('division by zero');
     Result := FloatToStr(A / B);
   end;
 end;

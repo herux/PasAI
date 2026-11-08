@@ -20,6 +20,7 @@ Models run locally and for free through [Ollama](https://ollama.com).
 - An evaluation harness: JSON datasets, deterministic checks, repeated runs per model, pass-rate tables and CSV output
 - Retrieval-augmented generation: paragraph chunking, BM25, vector search over Ollama embeddings, hybrid ranking with Reciprocal Rank Fusion, and prompts with numbered citations; retrieval evaluation with hit@k and MRR
 - A conversational companion: long-term member memory, a state machine for the conversation flow, input and output guardrails, and handover to a human
+- Security for agents that act: per-user permissions, risk levels, human confirmation decided by code, per-session call limits, an audit log, hidden internal errors, prompt injection markers, and an eval for injection attacks; a crypto exchange example with address allowlists, cooldowns, daily limits and maker-checker approval
 - No third-party dependencies: only the Free Pascal RTL and FCL
 
 ## Roadmap
@@ -65,6 +66,9 @@ Free Pascal 3.2.2.
 ./bin/rag                # answers from documents, with citations (needs: ollama pull bge-m3)
 ./bin/rageval            # retrieval quality (hit@k, MRR) for several configurations
 ./bin/companion heru     # a coaching companion that remembers you between sessions
+./bin/security           # tool permissions, confirmation and audit; a prompt injection attack
+./bin/security -eval     # how often models fall for injection, with and without defences
+./bin/exchange           # a crypto exchange assistant that cannot move money on its own
 ```
 
 ## Usage
