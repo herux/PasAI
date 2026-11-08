@@ -9,22 +9,22 @@ unit CoachTools;
   cannot recognize by itself, such as a debt problem that needs more than
   habit coaching.
 
-  Bookings are appended to data/bookings.log. In a real service this is
-  where the booking system or the coach on duty would be notified. }
+  Bookings are recorded through the member store: data/bookings.log with
+  the file store, the bookings table with PostgreSQL. In a real service
+  this is also where the coach on duty would be notified. }
 
 {$mode delphi}{$H+}
 
 interface
 
 uses
-  SysUtils, fpjson, PasAI.Schema, PasAI.Tools;
-
-const
-  BOOKINGS_FILE = 'data/bookings.log';
+  SysUtils, fpjson, PasAI.Schema, PasAI.Tools, PasAI.Storage;
 
 var
-  { The member the tool books for; set by the program before chatting. }
+  { The member the tool books for, and where bookings are recorded; set by
+    the program before chatting. }
   CurrentMemberId: string;
+  BookingStore: TMemberStore;
 
 { Record a booking and return a message describing it. AUrgency is
   "normal" or "urgent". }
@@ -36,22 +36,10 @@ implementation
 
 function BookCoach(const AMemberId, AReason, AUrgency: string): string;
 var
-  F: TextFile;
   Reference, When: string;
 begin
-  Reference := 'BK-' + FormatDateTime('mmddhhnnss', Now);
-  ForceDirectories(ExtractFileDir(BOOKINGS_FILE));
-  AssignFile(F, BOOKINGS_FILE);
-  if FileExists(BOOKINGS_FILE) then
-    Append(F)
-  else
-    Rewrite(F);
-  try
-    Writeln(F, FormatDateTime('yyyy-mm-dd hh:nn:ss', Now), #9, Reference, #9,
-      AMemberId, #9, AUrgency, #9, AReason);
-  finally
-    CloseFile(F);
-  end;
+  Reference := 'BK-' + FormatDateTime('yymmddhhnnsszzz', Now);
+  BookingStore.RecordBooking(AMemberId, Reference, AReason, AUrgency);
 
   if AUrgency = 'urgent' then
     When := 'within 1 hour'

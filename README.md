@@ -21,6 +21,7 @@ Models run locally and for free through [Ollama](https://ollama.com).
 - Retrieval-augmented generation: paragraph chunking, BM25, vector search over Ollama embeddings, hybrid ranking with Reciprocal Rank Fusion, and prompts with numbered citations; retrieval evaluation with hit@k and MRR
 - A conversational companion: long-term member memory, a state machine for the conversation flow, input and output guardrails, and handover to a human
 - Security for agents that act: per-user permissions, risk levels, human confirmation decided by code, per-session call limits, an audit log, hidden internal errors, prompt injection markers, and an eval for injection attacks; a crypto exchange example with address allowlists, cooldowns, daily limits and maker-checker approval
+- PostgreSQL persistence through SQLdb: parameterized queries, numbered SQL migrations, an event-based data model for member progress, routing and insight capture, and a database audit sink
 - No third-party dependencies: only the Free Pascal RTL and FCL
 
 ## Roadmap
@@ -31,7 +32,7 @@ Models run locally and for free through [Ollama](https://ollama.com).
 4. RAG: chunking, BM25, vector store, hybrid retrieval *(done)*
 5. Evaluation harness *(done, ahead of step 4)*
 6. Conversation memory, state machines, guardrails, human handover *(done)*
-7. PostgreSQL persistence
+7. PostgreSQL persistence *(done)*
 8. Delphi port
 
 ## Requirements
@@ -45,6 +46,12 @@ Models run locally and for free through [Ollama](https://ollama.com).
 - For the RAG example, an embedding model:
   ```sh
   ollama pull bge-m3
+  ```
+- For the PostgreSQL examples (optional): Docker, and the PostgreSQL client
+  library on the machine that runs the programs:
+  ```sh
+  brew install libpq                               # macOS
+  docker compose -f db/docker-compose.yml up -d    # PostgreSQL on port 5433
   ```
   7–8B models (about 5 GB with Ollama's default quantization) run comfortably on
   a machine with 16 GB of RAM. Browse models at https://ollama.com/library
@@ -69,6 +76,8 @@ Free Pascal 3.2.2.
 ./bin/security           # tool permissions, confirmation and audit; a prompt injection attack
 ./bin/security -eval     # how often models fall for injection, with and without defences
 ./bin/exchange           # a crypto exchange assistant that cannot move money on its own
+./bin/companion -db heru # the same companion, stored in PostgreSQL
+./bin/dbtool report       # what the event tables say about the service
 ```
 
 ## Usage
@@ -109,5 +118,6 @@ end.
 src/        library units (PasAI.*)
 examples/   example programs, one folder per concept
 examples/common/   units shared by several examples
+db/         docker-compose.yml and SQL migrations
 lib/ bin/   build output (not tracked)
 ```

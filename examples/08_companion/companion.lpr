@@ -16,12 +16,16 @@ program CompanionDemo;
                          then a safe fallback
     5. memory            facts extracted and saved after every turn
 
-  Run:   ./bin/companion [member-id] [model]
+  Run:   ./bin/companion [-db] [member-id] [model]
+         -db stores everything in PostgreSQL (see db/docker-compose.yml)
+         instead of files, including fact history, state transitions and
+         input verdicts.
   Then:  /profile  show what is remembered    /state  show the state
          /quit     save session notes and exit
 
-  Quit and start again with the same member id: it remembers. Member
-  profiles are stored in data/members/, bookings in data/bookings.log. }
+  Quit and start again with the same member id: it remembers. Without
+  -db, profiles are stored in data/members/ and bookings in
+  data/bookings.log. }
 
 {$mode delphi}{$H+}
 {$codepage utf8}
@@ -31,12 +35,15 @@ uses
   Classes, SysUtils,
   PasAI.Types, PasAI.Provider, PasAI.Ollama, PasAI.Tools, PasAI.Agent,
   PasAI.Guardrails, PasAI.Memory, PasAI.StateMachine,
+  PasAI.Storage, PasAI.Pg, PasAI.PgStore,
   CoachTools;
 
 const
   DEFAULT_MEMBER = 'demo';
   DEFAULT_MODEL = 'qwen2.5:7b-instruct';
   MEMBERS_DIR = 'data/members';
+  BOOKINGS_FILE = 'data/bookings.log';
+  MIGRATIONS_DIR = 'db/migrations';
 
   SCOPE = 'personal budgeting, saving habits, spending awareness, debt habits, ' +
     'financial goals and the motivation to reach them';
@@ -92,6 +99,7 @@ var
   Chat: TOllamaClient;
   Tools: TToolRegistry;
   Profile: TMemberProfile;
+  Store: TMemberStore;
   Flow: TStateMachine;
   History: TChatMessages;
   SessionNotes: string;
@@ -180,11 +188,14 @@ var
   Reply: string;
 begin
   Trace(BookCoach(Profile.Id, 'crisis signal in conversation', 'urgent'));
-  if Flow.CanTransitionTo('handover') then
+  if (Flow.Current <> 'handover') and Flow.CanTransitionTo('handover') then
   begin
+    Store.RecordTransition(Profile.Id, Flow.Current, 'handover', 'crisis signal');
     Flow.TransitionTo('handover');
     Trace('state: -> handover');
   end;
+  Profile.State := Flow.Current;
+  Store.SaveProfile(Profile);
   if InEnglish(AText) then
     Reply := CRISIS_REPLY_EN
   else
@@ -206,6 +217,8 @@ begin
   { 1. Input guardrail }
   Verdict := ClassifyInput(Chat, AText, SCOPE);
   Trace(Format('input: %s (%s)', [INPUT_CATEGORY_NAMES[Verdict.Category], Verdict.Reason]));
+  Store.RecordInputVerdict(Profile.Id, INPUT_CATEGORY_NAMES[Verdict.Category],
+    Verdict.Reason, Verdict.ByPhrase);
 
   TurnNote := '';
   case Verdict.Category of
@@ -263,13 +276,14 @@ begin
 
     if (Flow.Current = 'onboarding') and Profile.HasFact('goal') then
     begin
+      Store.RecordTransition(Profile.Id, 'onboarding', 'coaching', 'goal known');
       Flow.TransitionTo('coaching');
       Trace('state: onboarding -> coaching (a goal is known)');
     end;
   end;
 
   Profile.State := Flow.Current;
-  Profile.Save;
+  Store.SaveProfile(Profile);
 
   if CompactHistory(Chat, History, SessionNotes, 16, 8) then
     Trace('memory: older messages summarized into session notes');
@@ -284,28 +298,66 @@ begin
       Trim(Profile.Summary + ' ' + SessionNotes));
   end;
   Profile.State := Flow.Current;
-  Profile.Save;
-  Writeln('Saved ', Profile.FileName);
+  Store.SaveProfile(Profile);
+  Store.EndSession(Profile.Summary, Flow.Current);
+  Writeln('Saved to ', Store.Describe);
 end;
 
 var
   MemberId, ModelName, Line: string;
+  UseDb: Boolean;
+  Db: TPgDatabase;
+  AuditSink: TPgAuditSink;
+  Applied: TStringList;
+  Positional, I: Integer;
 begin
   MemberId := DEFAULT_MEMBER;
   ModelName := DEFAULT_MODEL;
-  if ParamCount >= 1 then
-    MemberId := ParamStr(1);
-  if ParamCount >= 2 then
-    ModelName := ParamStr(2);
+  UseDb := False;
+  Positional := 0;
+  for I := 1 to ParamCount do
+    if ParamStr(I) = '-db' then
+      UseDb := True
+    else
+    begin
+      Inc(Positional);
+      if Positional = 1 then
+        MemberId := ParamStr(I)
+      else if Positional = 2 then
+        ModelName := ParamStr(I);
+    end;
   CurrentMemberId := MemberId;
 
   Chat := TOllamaClient.Create(ModelName);
   Tools := BuildCoachTools;
   Flow := TStateMachine.Create;
   Profile := nil;
+  Store := nil;
+  Db := nil;
+  AuditSink := nil;
   try
     try
       Chat.Temperature := 0.3;
+
+      if UseDb then
+      begin
+        Db := TPgDatabase.Create(PgConfigFromEnv);
+        Applied := TStringList.Create;
+        try
+          Db.Migrate(MIGRATIONS_DIR, Applied);
+          for I := 0 to Applied.Count - 1 do
+            Writeln('database: ', Applied[I]);
+        finally
+          Applied.Free;
+        end;
+        Store := TPgMemberStore.Create(Db);
+        AuditSink := TPgAuditSink.Create(Db);
+        Tools.AuditSink := AuditSink;
+      end
+      else
+        Store := TFileMemberStore.Create(MEMBERS_DIR, BOOKINGS_FILE);
+      BookingStore := Store;
+      Tools.Context := ToolContext(MemberId, '');
 
       Flow.AddState('onboarding', STATE_ONBOARDING);
       Flow.AddState('coaching', STATE_COACHING);
@@ -314,13 +366,15 @@ begin
       Flow.AllowTransition('onboarding', 'handover');
       Flow.AllowTransition('coaching', 'handover');
 
-      Profile := TMemberProfile.Load(MEMBERS_DIR, MemberId);
+      Profile := Store.LoadProfile(MemberId);
+      Store.StartSession(MemberId);
       Profile.Sessions := Profile.Sessions + 1;
       if Profile.State <> '' then
         Flow.Current := Profile.State;
 
       Writeln(Format('PasCoach (%s), member "%s", session %d, stage %s',
         [ModelName, MemberId, Profile.Sessions, Flow.Current]));
+      Writeln('Storage: ', Store.Describe);
       if Profile.Facts.Count > 0 then
         Writeln(Format('Remembering %d fact(s) from earlier sessions. /profile shows them.',
           [Profile.Facts.Count]));
@@ -377,6 +431,9 @@ begin
     Profile.Free;
     Flow.Free;
     Tools.Free;
+    AuditSink.Free;
+    Store.Free;
+    Db.Free;
     Chat.Free;
   end;
 end.

@@ -115,6 +115,22 @@ type
 
   TAuditProc = procedure(const AEntry: TAuditEntry);
 
+  { Where audit entries are stored: a file, a database table, ... }
+  TAuditSink = class
+  public
+    procedure Log(const AEntry: TAuditEntry); virtual; abstract;
+  end;
+
+  { One JSON object per line, appended to a file. }
+  TFileAuditSink = class(TAuditSink)
+  private
+    FFileName: string;
+  public
+    constructor Create(const AFileName: string);
+    procedure Log(const AEntry: TAuditEntry); override;
+    property FileName: string read FFileName;
+  end;
+
   TToolRegistry = class
   private
     FSpecs: TToolSpecs;
@@ -128,6 +144,7 @@ type
     FOnConfirm: TConfirmFunc;
     FOnAudit: TAuditProc;
     FAuditFileName: string;
+    FAuditSink: TAuditSink;
     function IndexOf(const AName: string): Integer;
     function Register(const AName, ADescription: string; const ASchema: UTF8String;
       AHandler: TToolHandler; AContextHandler: TContextToolHandler;
@@ -169,6 +186,10 @@ type
     property OnAudit: TAuditProc read FOnAudit write FOnAudit;
     { If set, every attempt is appended to this file as one JSON line. }
     property AuditFileName: string read FAuditFileName write FAuditFileName;
+    { If set, every attempt is also passed to this sink. Not owned. If the
+      sink fails, the failure is written to standard error and the tool
+      result is unaffected (see ARCHITECTURE.md on this trade-off). }
+    property AuditSink: TAuditSink read FAuditSink write FAuditSink;
   end;
 
 function ToolOptions(ARisk: TToolRisk; const APermission: string = '';
@@ -343,12 +364,25 @@ begin
   end;
 end;
 
+{ TFileAuditSink }
+
+constructor TFileAuditSink.Create(const AFileName: string);
+begin
+  inherited Create;
+  FFileName := AFileName;
+end;
+
+procedure TFileAuditSink.Log(const AEntry: TAuditEntry);
+begin
+  WriteAuditLine(FFileName, AEntry);
+end;
+
 procedure TToolRegistry.Audit(const ACall: TToolCall; const AOutcome, ADetail: string;
   AStart: QWord);
 var
   E: TAuditEntry;
 begin
-  if not Assigned(FOnAudit) and (FAuditFileName = '') then
+  if not Assigned(FOnAudit) and (FAuditFileName = '') and (FAuditSink = nil) then
     Exit;
   E.Time := Now;
   E.UserId := FContext.UserId;
@@ -359,6 +393,13 @@ begin
   E.DurationMs := GetTickCount64 - AStart;
   if FAuditFileName <> '' then
     WriteAuditLine(FAuditFileName, E);
+  if FAuditSink <> nil then
+    try
+      FAuditSink.Log(E);
+    except
+      on Ex: Exception do
+        Writeln(ErrOutput, 'PasAI: audit sink failed: ', Ex.Message);
+    end;
   if Assigned(FOnAudit) then
     FOnAudit(E);
 end;
