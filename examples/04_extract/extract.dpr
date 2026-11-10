@@ -8,12 +8,12 @@ program extract;
 
   Run:  ./bin/extract [model-name] }
 
-{$mode delphi}{$H+}
-{$codepage utf8}
+{$IFDEF FPC}{$mode delphi}{$codepage utf8}{$ENDIF}{$H+}
+{$IFNDEF FPC}{$APPTYPE CONSOLE}{$ENDIF}
 
 uses
   {$IFDEF UNIX}cwstring,{$ENDIF}
-  Classes, SysUtils, fpjson,
+  Classes, SysUtils, PasAI.Json,
   PasAI.Types, PasAI.Provider, PasAI.Mock, PasAI.Ollama, PasAI.Structured;
 
 const
@@ -48,10 +48,10 @@ type
   the right type. }
 function MeetingFromJSON(AObj: TJSONObject): TMeeting;
 begin
-  Result.Person := AObj.Strings['person'];
-  Result.Day := AObj.Strings['day'];
-  Result.Time := AObj.Strings['time'];
-  Result.Topic := AObj.Strings['topic'];
+  Result.Person := JsonGetString(AObj, 'person');
+  Result.Day := JsonGetString(AObj, 'day');
+  Result.Time := JsonGetString(AObj, 'time');
+  Result.Topic := JsonGetString(AObj, 'topic');
 end;
 
 procedure LogAttempt(AAttempt: Integer; const ARawReply: string; AErrors: TStrings);
@@ -155,6 +155,7 @@ end;
 var
   ModelName: string;
 begin
+  InitConsole;
   ModelName := 'qwen2.5:7b-instruct';
   if ParamCount > 0 then
     ModelName := ParamStr(1);

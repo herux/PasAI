@@ -11,7 +11,7 @@ unit PasAI.Embed;
 
   TEmbedder is the provider-independent base class, mirroring TLLMProvider. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 

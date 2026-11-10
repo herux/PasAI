@@ -23,7 +23,7 @@ unit PasAI.RetrievalEval;
     MRR    mean of 1/rank of the first matching chunk (0 when not found);
            1.0 means always first, 0.5 means typically second *)
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
@@ -65,23 +65,17 @@ function ComputeMetrics(const ARanks: TRanks): TRetrievalMetrics;
 implementation
 
 uses
-  fpjson, jsonparser;
+  PasAI.Json;
 
 function LoadRetrievalCases(const AFileName: string): TRetrievalCases;
 var
-  FS: TFileStream;
-  Root, Cases, Expect, D: TJSONData;
+  Root, Cases, Expect, D: TJSONValue;
   C: TJSONObject;
   I, J: Integer;
 begin
   Result := nil;
   try
-    FS := TFileStream.Create(AFileName, fmOpenRead or fmShareDenyWrite);
-    try
-      Root := GetJSON(FS);
-    finally
-      FS.Free;
-    end;
+    Root := ParseJson(LoadTextFileUtf8(AFileName));
   except
     on E: Exception do
       raise EPasAIError.CreateFmt('Cannot read %s: %s', [AFileName, E.Message]);
@@ -89,35 +83,35 @@ begin
 
   try
     Cases := nil;
-    if Root.JSONType = jtObject then
-      Cases := TJSONObject(Root).Find('cases');
-    if (Cases = nil) or (Cases.JSONType <> jtArray) then
+    if JsonKind(Root) = jkObject then
+      Cases := JsonFind(TJSONObject(Root), 'cases');
+    if (Cases = nil) or (JsonKind(Cases) <> jkArray) then
       raise EPasAIError.CreateFmt('%s: expected an object with a "cases" array', [AFileName]);
 
-    SetLength(Result, Cases.Count);
-    for I := 0 to Cases.Count - 1 do
+    SetLength(Result, JsonCount(Cases));
+    for I := 0 to JsonCount(Cases) - 1 do
     begin
-      if Cases.Items[I].JSONType <> jtObject then
+      if JsonKind(JsonItem(Cases, I)) <> jkObject then
         raise EPasAIError.CreateFmt('%s: case #%d is not an object', [AFileName, I + 1]);
-      C := TJSONObject(Cases.Items[I]);
+      C := TJSONObject(JsonItem(Cases, I));
 
-      D := C.Find('id');
-      if (D = nil) or (D.JSONType <> jtString) then
+      D := JsonFind(C, 'id');
+      if (D = nil) or (JsonKind(D) <> jkString) then
         raise EPasAIError.CreateFmt('%s: case #%d has no "id"', [AFileName, I + 1]);
-      Result[I].Id := D.AsString;
+      Result[I].Id := JsonAsString(D);
 
-      D := C.Find('query');
-      if (D = nil) or (D.JSONType <> jtString) then
+      D := JsonFind(C, 'query');
+      if (D = nil) or (JsonKind(D) <> jkString) then
         raise EPasAIError.CreateFmt('%s: case "%s" has no "query"', [AFileName, Result[I].Id]);
-      Result[I].Query := D.AsString;
+      Result[I].Query := JsonAsString(D);
 
-      Expect := C.Find('expect');
-      if (Expect = nil) or (Expect.JSONType <> jtArray) or (Expect.Count = 0) then
+      Expect := JsonFind(C, 'expect');
+      if (Expect = nil) or (JsonKind(Expect) <> jkArray) or (JsonCount(Expect) = 0) then
         raise EPasAIError.CreateFmt('%s: case "%s" needs a non-empty "expect" array',
           [AFileName, Result[I].Id]);
-      SetLength(Result[I].Expect, Expect.Count);
-      for J := 0 to Expect.Count - 1 do
-        Result[I].Expect[J] := Expect.Items[J].AsString;
+      SetLength(Result[I].Expect, JsonCount(Expect));
+      for J := 0 to JsonCount(Expect) - 1 do
+        Result[I].Expect[J] := JsonAsString(JsonItem(Expect, J));
     end;
   finally
     Root.Free;

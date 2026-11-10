@@ -1,4 +1,4 @@
-program RagEvalDemo;   // not "rageval": avoids clashing with PasAI.RetrievalEval names
+program rageval;   // Delphi requires this name to match the file name
 
 { Example 7b: measuring retrieval, and choosing a configuration by numbers.
 
@@ -13,13 +13,13 @@ program RagEvalDemo;   // not "rageval": avoids clashing with PasAI.RetrievalEva
   Run:  ./bin/rageval [-e embed-model] [-v]
         -v  print the rank of every case, not only the hybrid misses }
 
-{$mode delphi}{$H+}
-{$codepage utf8}
+{$IFDEF FPC}{$mode delphi}{$codepage utf8}{$ENDIF}{$H+}
+{$IFNDEF FPC}{$APPTYPE CONSOLE}{$ENDIF}
 
 uses
   {$IFDEF UNIX}cwstring,{$ENDIF}
   Classes, SysUtils,
-  PasAI.Ollama, PasAI.Embed, PasAI.Chunk, PasAI.BM25, PasAI.Retriever,
+  PasAI.Types, PasAI.Ollama, PasAI.Embed, PasAI.Chunk, PasAI.BM25, PasAI.Retriever,
   PasAI.RetrievalEval;
 
 const
@@ -73,6 +73,7 @@ var
   Verbose: Boolean;
   C, I: Integer;
 begin
+  InitConsole;
   EmbedModel := DEFAULT_EMBED_MODEL;
   Verbose := False;
   I := 1;

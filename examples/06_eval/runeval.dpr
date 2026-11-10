@@ -1,4 +1,4 @@
-program EvalDemo;   // not "eval" or "runeval": avoids clashing with PasAI.Eval
+program runeval;   // Delphi requires this name to match the file name
 
 { Example 6: evaluating the agent from example 5 across models and prompts.
 
@@ -19,8 +19,8 @@ program EvalDemo;   // not "eval" or "runeval": avoids clashing with PasAI.Eval
   and their history lives in git. $TODAY and $WEEKDAY are expanded.
   Results are printed as a table and saved to results/eval-<time>.csv. }
 
-{$mode delphi}{$H+}
-{$codepage utf8}
+{$IFDEF FPC}{$mode delphi}{$codepage utf8}{$ENDIF}{$H+}
+{$IFNDEF FPC}{$APPTYPE CONSOLE}{$ENDIF}
 
 uses
   {$IFDEF UNIX}cwstring,{$ENDIF}
@@ -52,19 +52,12 @@ end;
 
 function LoadPrompt(const AName: string): string;
 var
-  Lines: TStringList;
   FileName: string;
 begin
   FileName := PROMPT_DIR + AName + '.txt';
   if not FileExists(FileName) then
     raise Exception.CreateFmt('Prompt file not found: %s', [FileName]);
-  Lines := TStringList.Create;
-  try
-    Lines.LoadFromFile(FileName);
-    Result := ExpandMacros(Trim(Lines.Text));
-  finally
-    Lines.Free;
-  end;
+  Result := ExpandMacros(Trim(LoadTextFileUtf8(FileName)));
 end;
 
 procedure ShowResult(const R: TEvalResult);
@@ -86,6 +79,7 @@ var
   Temperature: Double;
   Dataset, Arg, CSVFile: string;
 begin
+  InitConsole;
   Repeats := 3;
   Temperature := -1;
   Dataset := DEFAULT_DATASET;
@@ -106,7 +100,7 @@ begin
       else if (Arg = '-t') and (I < ParamCount) then
       begin
         Inc(I);
-        Temperature := StrToFloat(ParamStr(I));
+        Temperature := StrToFloat(ParamStr(I), InvariantFormat);
       end
       else if (Arg = '-p') and (I < ParamCount) then
       begin

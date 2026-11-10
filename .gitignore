@@ -9,3 +9,11 @@ backup/
 .DS_Store
 
 .fuse_hidden*
+
+# Delphi
+*.dcu
+*.dproj.local
+*.identcache
+*.res
+__history/
+__recovery/

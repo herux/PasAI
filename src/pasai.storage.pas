@@ -12,7 +12,7 @@ unit PasAI.Storage;
   A store tracks the current session: StartSession opens it, the Record*
   methods attach to it, EndSession closes it. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
@@ -106,21 +106,9 @@ end;
 
 procedure TFileMemberStore.RecordBooking(const AMemberId, AReference, AReason,
   AUrgency: string);
-var
-  F: TextFile;
 begin
-  ForceDirectories(ExtractFileDir(ExpandFileName(FBookingsFile)));
-  AssignFile(F, FBookingsFile);
-  if FileExists(FBookingsFile) then
-    Append(F)
-  else
-    Rewrite(F);
-  try
-    Writeln(F, FormatDateTime('yyyy-mm-dd hh:nn:ss', Now), #9, AReference, #9,
-      AMemberId, #9, AUrgency, #9, AReason);
-  finally
-    CloseFile(F);
-  end;
+  AppendLineUtf8(FBookingsFile, FormatDateTime('yyyy-mm-dd hh:nn:ss', Now, InvariantFormat) +
+    #9 + AReference + #9 + AMemberId + #9 + AUrgency + #9 + AReason);
 end;
 
 end.

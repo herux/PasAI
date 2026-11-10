@@ -1,4 +1,4 @@
-program AgentDemo;   // not "agent": avoids clashing with unit PasAI.Agent
+program AgentDemo;   // Delphi requires this name to match the file name
 
 { Example 5: tool calling and the agent loop.
 
@@ -10,11 +10,11 @@ program AgentDemo;   // not "agent": avoids clashing with unit PasAI.Agent
   that was never registered, so every step of the loop is visible.
   Part 2 lets a real model decide which tools to use.
 
-  Run:  ./bin/agent [model-name]
+  Run:  ./bin/agentdemo [model-name]
   The model must support tools in Ollama; qwen2.5 and llama3.1 do. }
 
-{$mode delphi}{$H+}
-{$codepage utf8}
+{$IFDEF FPC}{$mode delphi}{$codepage utf8}{$ENDIF}{$H+}
+{$IFNDEF FPC}{$APPTYPE CONSOLE}{$ENDIF}
 
 uses
   {$IFDEF UNIX}cwstring,{$ENDIF}
@@ -130,6 +130,7 @@ var
   Tools: TToolRegistry;
   ModelName: string;
 begin
+  InitConsole;
   ModelName := 'qwen2.5:7b-instruct';
   if ParamCount > 0 then
     ModelName := ParamStr(1);

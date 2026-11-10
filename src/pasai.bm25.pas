@@ -18,8 +18,9 @@ unit PasAI.BM25;
 
   Tokenizing is deliberately simple: lowercase ASCII, split on anything
   that is not a letter or digit, keep tokens of two or more characters.
-  Bytes of 128 and above (UTF-8 sequences) count as letters, so words with
-  accented or non-Latin characters stay whole. No stemming.
+  Characters above 127 count as letters (UTF-8 bytes in Free Pascal, UTF-16
+  characters in Delphi), so words with accented or non-Latin characters
+  stay whole. No stemming.
 
   Stop words are optional. Very common words ("the", "yang") carry little
   meaning, and in a corpus that mixes languages they create false matches:
@@ -27,12 +28,12 @@ unit PasAI.BM25;
   and "to". BM25's idf already lowers their weight; removing them stops
   them from producing matches at all. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils, PasAI.Search;
+  Classes, SysUtils, PasAI.Types, PasAI.Search;
 
 const
   { Space separated, lowercase. Pass to TBM25Index.AddStopWords. }
@@ -123,7 +124,7 @@ begin
   Tokens := nil;
   Token := '';
   for I := 1 to Length(AText) do
-    if (AText[I] in ['a'..'z', 'A'..'Z', '0'..'9']) or (Ord(AText[I]) >= 128) then
+    if IsAsciiAlnum(AText[I]) or (Ord(AText[I]) >= 128) then
       Token := Token + AText[I]
     else
       Flush;

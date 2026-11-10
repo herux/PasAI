@@ -16,7 +16,7 @@ unit PasAI.Schema;
   Properties are required unless ARequired is False. Covers the subset
   that PasAI.Structured validates: type, properties, required, enum. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
@@ -51,12 +51,12 @@ function ObjectSchema: TObjectSchema;
 implementation
 
 uses
-  fpjson;
+  PasAI.Json;
 
 { A JSON string literal, quoted and escaped. }
 function Quoted(const S: string): UTF8String;
 begin
-  Result := '"' + StringToJSONString(UTF8String(S)) + '"';
+  Result := UTF8String(JsonQuote(S));
 end;
 
 function ObjectSchema: TObjectSchema;

@@ -14,7 +14,7 @@ unit PasAI.Mock;
   A scripted reply is either plain text (AddReply) or a request to run a
   tool (AddToolCall), which lets agent loops be tested step by step. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 

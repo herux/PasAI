@@ -37,12 +37,12 @@ unit ExchangeTools;
   ApproveWithdrawal is deliberately not a tool. In a real system it runs
   in a separate service, with separate credentials, on separate machines. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
 uses
-  SysUtils, fpjson, PasAI.Types, PasAI.Schema, PasAI.Tools, PasAI.Guardrails;
+  SysUtils, PasAI.Types, PasAI.Json, PasAI.Schema, PasAI.Tools, PasAI.Guardrails;
 
 const
   CUSTOMER_PERMISSIONS = 'wallet.read withdraw';
@@ -292,9 +292,9 @@ function ToolGetPrice(const ACtx: TToolContext; AArgs: TJSONObject): string;
 var
   A: Integer;
 begin
-  A := AssetIndex(AArgs.Strings['asset']);
+  A := AssetIndex(JsonGetString(AArgs, 'asset'));
   Result := Format('%s = %.2f USD (fictional demo price)',
-    [ASSETS[A].Symbol, ASSETS[A].PriceUsd]);
+    [ASSETS[A].Symbol, ASSETS[A].PriceUsd], InvariantFormat);
 end;
 
 function ToolListAddresses(const ACtx: TToolContext; AArgs: TJSONObject): string;
@@ -310,7 +310,7 @@ begin
         Addresses[I].Asset, Addresses[I].Address]);
       Left := CooldownLeftHours(Addresses[I]);
       if Left > 0 then
-        Result := Result + Format(' - usable in %.0f hours (new address cooldown)', [Left]);
+        Result := Result + Format(' - usable in %.0f hours (new address cooldown)', [Left], InvariantFormat);
       Result := Result + LineEnding;
     end;
   if Result = '' then
@@ -323,7 +323,7 @@ var
 begin
   { Token descriptions are written by the token projects themselves: the
     classic untrusted input of an exchange. }
-  Symbol := UpperCase(AArgs.Strings['symbol']);
+  Symbol := UpperCase(JsonGetString(AArgs, 'symbol'));
   if Symbol = 'PASCOIN' then
     Text := 'PasCoin is a fictional demo token used in the PasAI examples. ' +
       'It has a fixed supply of 21 million and no real value.'
@@ -374,8 +374,8 @@ var
   Units, Available: Int64;
   Left, UsdNow, UsdUsed: Double;
 begin
-  AssetSym := AArgs.Strings['asset'];
-  LabelName := AArgs.Strings['address_label'];
+  AssetSym := JsonGetString(AArgs, 'asset');
+  LabelName := JsonGetString(AArgs, 'address_label');
   A := AssetIndex(AssetSym);
 
   Adr := AddressIndex(ACtx.UserId, LabelName);
@@ -386,10 +386,10 @@ begin
       [LabelName, Addresses[Adr].Asset, AssetSym]);
   Left := CooldownLeftHours(Addresses[Adr]);
   if Left > 0 then
-    raise EToolError.CreateFmt('address "%s" was added recently and can be used ' +
-      'in %.0f hours', [LabelName, Left]);
+    raise EToolError.Create(Format('address "%s" was added recently and can be used ' +
+      'in %.0f hours', [LabelName, Left], InvariantFormat));
 
-  Units := ToUnits(AArgs.Floats['amount'], ASSETS[A].Decimals);
+  Units := ToUnits(JsonGetFloat(AArgs, 'amount'), ASSETS[A].Decimals);
   if Units <= 0 then
     raise EToolError.Create('amount must be positive');
 
@@ -404,9 +404,9 @@ begin
   UsdNow := UsdValue(AssetSym, Units);
   UsdUsed := UsedTodayUsd(ACtx.UserId);
   if UsdUsed + UsdNow > DAILY_LIMIT_USD then
-    raise EToolError.CreateFmt('daily withdrawal limit of %d USD exceeded ' +
+    raise EToolError.Create(Format('daily withdrawal limit of %d USD exceeded ' +
       '(already used %.2f USD today, this request is %.2f USD)',
-      [DAILY_LIMIT_USD, UsdUsed, UsdNow]);
+      [DAILY_LIMIT_USD, UsdUsed, UsdNow], InvariantFormat));
 
   Result.AssetSym := AssetSym;
   Result.LabelName := LabelName;
@@ -430,7 +430,7 @@ begin
     'Daily limit left after this: %.2f USD. The security team must still ' +
     'approve the request before funds move.',
     [FormatUnits(W.Units, ASSETS[W.Asset].Decimals), W.AssetSym, W.UsdAmount,
-     W.LabelName, Addresses[W.Address].Address, W.UsdLeftToday]);
+     W.LabelName, Addresses[W.Address].Address, W.UsdLeftToday], InvariantFormat);
 end;
 
 function ToolRequestWithdrawal(const ACtx: TToolContext; AArgs: TJSONObject): string;

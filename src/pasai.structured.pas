@@ -21,12 +21,12 @@ unit PasAI.Structured;
     enum        list of allowed values
   Other keywords are ignored. *)
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils, fpjson, jsonparser, PasAI.Types, PasAI.Provider;
+  Classes, SysUtils, PasAI.Types, PasAI.Provider, PasAI.Json;
 
 type
   EStructuredOutputError = class(EPasAIError);
@@ -42,7 +42,7 @@ function ExtractJSONText(const AText: string): string;
 
 { Validate AValue against ASchema and add one human-readable line per
   problem to AErrors. Paths look like $.items[2].name }
-procedure ValidateJSON(AValue: TJSONData; ASchema: TJSONObject; AErrors: TStrings);
+procedure ValidateJSON(AValue: TJSONValue; ASchema: TJSONObject; AErrors: TStrings);
 
 { Ask AProvider for a JSON object matching ASchema, validating the reply and
   retrying with feedback up to AMaxAttempts times. Returns the validated
@@ -70,134 +70,111 @@ end;
 
 { Validation }
 
-function JSONTypeName(AValue: TJSONData): string;
-begin
-  case AValue.JSONType of
-    jtObject:  Result := 'object';
-    jtArray:   Result := 'array';
-    jtString:  Result := 'string';
-    jtNumber:  Result := 'number';
-    jtBoolean: Result := 'boolean';
-    jtNull:    Result := 'null';
-  else
-    Result := 'unknown';
-  end;
-end;
-
-function MatchesType(AValue: TJSONData; const AType: string): Boolean;
+function MatchesType(AValue: TJSONValue; const AType: string): Boolean;
 begin
   if AType = 'integer' then
-  begin
-    { JSON Schema treats 3.0 as an integer too. }
-    Result := (AValue.JSONType = jtNumber) and
-      ((TJSONNumber(AValue).NumberType <> ntFloat) or (Frac(AValue.AsFloat) = 0));
-  end
+    Result := JsonIsInteger(AValue)   // JSON Schema treats 3.0 as an integer too
   else
-    Result := JSONTypeName(AValue) = AType;
+    Result := JsonKindName(AValue) = AType;
 end;
 
 { "type" can be a single name or an array of names. }
-function MatchesTypeSpec(AValue: TJSONData; ATypeSpec: TJSONData;
+function MatchesTypeSpec(AValue: TJSONValue; ATypeSpec: TJSONValue;
   out ADescription: string): Boolean;
 var
   I: Integer;
+  Name: string;
 begin
-  if ATypeSpec.JSONType = jtArray then
+  if JsonKind(ATypeSpec) = jkArray then
   begin
     ADescription := '';
     Result := False;
-    for I := 0 to ATypeSpec.Count - 1 do
+    for I := 0 to JsonCount(ATypeSpec) - 1 do
     begin
+      Name := JsonAsString(JsonItem(ATypeSpec, I));
       if ADescription <> '' then
         ADescription := ADescription + ' or ';
-      ADescription := ADescription + ATypeSpec.Items[I].AsString;
-      if MatchesType(AValue, ATypeSpec.Items[I].AsString) then
+      ADescription := ADescription + Name;
+      if MatchesType(AValue, Name) then
         Result := True;
     end;
   end
   else
   begin
-    ADescription := ATypeSpec.AsString;
+    ADescription := JsonAsString(ATypeSpec);
     Result := MatchesType(AValue, ADescription);
   end;
 end;
 
-procedure ValidateAt(AValue: TJSONData; ASchema: TJSONObject;
+procedure ValidateAt(AValue: TJSONValue; ASchema: TJSONObject;
   const APath: string; AErrors: TStrings);
 var
-  Spec, Child: TJSONData;
-  Props: TJSONObject;
-  Required, Allowed: TJSONArray;
+  Spec, Child, Prop: TJSONValue;
   Expected, Name, AllowedList: string;
   I: Integer;
   Found: Boolean;
 begin
   { type: stop here on mismatch, further checks would only add noise }
-  Spec := ASchema.Find('type');
+  Spec := JsonFind(ASchema, 'type');
   if (Spec <> nil) and not MatchesTypeSpec(AValue, Spec, Expected) then
   begin
-    AErrors.Add(Format('%s: expected %s, got %s',
-      [APath, Expected, JSONTypeName(AValue)]));
+    AErrors.Add(Format('%s: expected %s, got %s', [APath, Expected, JsonKindName(AValue)]));
     Exit;
   end;
 
   { enum: compare by JSON text, so "1" and 1 are different values }
-  Spec := ASchema.Find('enum');
-  if (Spec <> nil) and (Spec.JSONType = jtArray) then
+  Spec := JsonFind(ASchema, 'enum');
+  if (Spec <> nil) and (JsonKind(Spec) = jkArray) then
   begin
-    Allowed := TJSONArray(Spec);
     Found := False;
     AllowedList := '';
-    for I := 0 to Allowed.Count - 1 do
+    for I := 0 to JsonCount(Spec) - 1 do
     begin
-      if Allowed.Items[I].AsJSON = AValue.AsJSON then
+      if JsonEquals(JsonItem(Spec, I), AValue) then
         Found := True;
       if AllowedList <> '' then
         AllowedList := AllowedList + ', ';
-      AllowedList := AllowedList + Allowed.Items[I].AsJSON;
+      AllowedList := AllowedList + JsonToText(JsonItem(Spec, I));
     end;
     if not Found then
       AErrors.Add(Format('%s: value %s is not one of: %s',
-        [APath, AValue.AsJSON, AllowedList]));
+        [APath, JsonToText(AValue), AllowedList]));
   end;
 
-  if AValue.JSONType = jtObject then
+  if JsonKind(AValue) = jkObject then
   begin
-    Spec := ASchema.Find('required');
-    if (Spec <> nil) and (Spec.JSONType = jtArray) then
-    begin
-      Required := TJSONArray(Spec);
-      for I := 0 to Required.Count - 1 do
-        if TJSONObject(AValue).Find(Required.Items[I].AsString) = nil then
-          AErrors.Add(Format('%s: missing required property "%s"',
-            [APath, Required.Items[I].AsString]));
-    end;
-
-    Spec := ASchema.Find('properties');
-    if (Spec <> nil) and (Spec.JSONType = jtObject) then
-    begin
-      Props := TJSONObject(Spec);
-      for I := 0 to Props.Count - 1 do
+    Spec := JsonFind(ASchema, 'required');
+    if (Spec <> nil) and (JsonKind(Spec) = jkArray) then
+      for I := 0 to JsonCount(Spec) - 1 do
       begin
-        Name := Props.Names[I];
-        Child := TJSONObject(AValue).Find(Name);
-        if (Child <> nil) and (Props.Items[I].JSONType = jtObject) then
-          ValidateAt(Child, TJSONObject(Props.Items[I]), APath + '.' + Name, AErrors);
+        Name := JsonAsString(JsonItem(Spec, I));
+        if JsonFind(TJSONObject(AValue), Name) = nil then
+          AErrors.Add(Format('%s: missing required property "%s"', [APath, Name]));
       end;
-    end;
+
+    Spec := JsonFind(ASchema, 'properties');
+    if (Spec <> nil) and (JsonKind(Spec) = jkObject) then
+      for I := 0 to JsonCount(Spec) - 1 do
+      begin
+        Name := JsonName(TJSONObject(Spec), I);
+        Prop := JsonItem(Spec, I);
+        Child := JsonFind(TJSONObject(AValue), Name);
+        if (Child <> nil) and (JsonKind(Prop) = jkObject) then
+          ValidateAt(Child, TJSONObject(Prop), APath + '.' + Name, AErrors);
+      end;
   end;
 
-  if AValue.JSONType = jtArray then
+  if JsonKind(AValue) = jkArray then
   begin
-    Spec := ASchema.Find('items');
-    if (Spec <> nil) and (Spec.JSONType = jtObject) then
-      for I := 0 to AValue.Count - 1 do
-        ValidateAt(AValue.Items[I], TJSONObject(Spec),
+    Spec := JsonFind(ASchema, 'items');
+    if (Spec <> nil) and (JsonKind(Spec) = jkObject) then
+      for I := 0 to JsonCount(AValue) - 1 do
+        ValidateAt(JsonItem(AValue, I), TJSONObject(Spec),
           Format('%s[%d]', [APath, I]), AErrors);
   end;
 end;
 
-procedure ValidateJSON(AValue: TJSONData; ASchema: TJSONObject; AErrors: TStrings);
+procedure ValidateJSON(AValue: TJSONValue; ASchema: TJSONObject; AErrors: TStrings);
 begin
   ValidateAt(AValue, ASchema, '$', AErrors);
 end;
@@ -205,21 +182,13 @@ end;
 { Retry loop }
 
 function ParseSchema(const ASchema: UTF8String): TJSONObject;
-var
-  D: TJSONData;
 begin
   try
-    D := GetJSON(ASchema);
+    Result := ParseJsonObject(string(ASchema));
   except
     on E: Exception do
-      raise EStructuredOutputError.Create('Schema is not valid JSON: ' + E.Message);
+      raise EStructuredOutputError.Create('Schema is not a valid JSON object: ' + E.Message);
   end;
-  if D.JSONType <> jtObject then
-  begin
-    D.Free;
-    raise EStructuredOutputError.Create('Schema must be a JSON object');
-  end;
-  Result := TJSONObject(D);
 end;
 
 { Try to turn one reply into a valid object. Returns nil and fills AErrors
@@ -227,11 +196,11 @@ end;
 function TryParseReply(const AReply: string; ASchema: TJSONObject;
   AErrors: TStrings): TJSONObject;
 var
-  D: TJSONData;
+  D: TJSONValue;
 begin
   Result := nil;
   try
-    D := GetJSON(UTF8String(ExtractJSONText(AReply)));
+    D := ParseJson(ExtractJSONText(AReply));
   except
     on E: Exception do
     begin
@@ -240,9 +209,9 @@ begin
     end;
   end;
 
-  if D.JSONType <> jtObject then
+  if JsonKind(D) <> jkObject then
   begin
-    AErrors.Add('$: expected a JSON object, got ' + JSONTypeName(D));
+    AErrors.Add('$: expected a JSON object, got ' + JsonKindName(D));
     D.Free;
     Exit;
   end;

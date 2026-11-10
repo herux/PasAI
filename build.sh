@@ -1,5 +1,5 @@
 #!/bin/sh
-# Compile every example with Free Pascal.
+# Compile every example with Free Pascal. (For Delphi on Windows: build-delphi.bat)
 # Output: bin/<program-name>; compiled units go to lib/
 # Units shared by several examples live in examples/common/
 #
@@ -21,7 +21,7 @@ fi
 echo "Using compiler: $FPC"
 
 mkdir -p lib bin
-for f in examples/*/*.lpr; do
+for f in examples/*/*.dpr; do
   echo "== $f"
   "$FPC" -Mdelphi -Fusrc -Fuexamples/common -FUlib -FEbin "$f"
 done

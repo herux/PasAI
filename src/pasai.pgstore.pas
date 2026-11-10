@@ -7,13 +7,13 @@ unit PasAI.PgStore;
   rolls back when it fails, so a crash halfway through saving a profile
   never leaves facts without their history. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils, sqldb, PasAI.Types, PasAI.Memory, PasAI.Storage, PasAI.Tools,
-  PasAI.Pg;
+  Classes, SysUtils, {$IFDEF FPC}DB,{$ELSE}Data.DB,{$ENDIF}
+  PasAI.Types, PasAI.Memory, PasAI.Storage, PasAI.Tools, PasAI.Pg;
 
 type
   TPgMemberStore = class(TMemberStore)
@@ -56,13 +56,13 @@ end;
 
 function TPgMemberStore.Describe: string;
 begin
-  Result := Format('PostgreSQL database %s on %s',
-    [FDb.Connection.DatabaseName, FDb.Connection.HostName]);
+  Result := Format('PostgreSQL database %s on %s:%d',
+    [FDb.Config.Database, FDb.Config.Host, FDb.Config.Port]);
 end;
 
 function TPgMemberStore.LoadProfile(const AMemberId: string): TMemberProfile;
 var
-  Q: TSQLQuery;
+  Q: TDataSet;
 begin
   Result := TMemberProfile.Create(AMemberId, '');
   try
@@ -101,7 +101,7 @@ end;
 procedure TPgMemberStore.SaveProfile(AProfile: TMemberProfile);
 var
   Existing: TStringList;
-  Q: TSQLQuery;
+  Q: TDataSet;
   State, Key, Value: string;
   I, Known: Integer;
 begin

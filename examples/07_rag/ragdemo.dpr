@@ -1,4 +1,4 @@
-program RagDemo;   // not "rag": avoids clashing with unit PasAI.Rag
+program RagDemo;   // Delphi requires this name to match the file name
 
 { Example 7: retrieval-augmented generation over a small document set.
 
@@ -18,12 +18,12 @@ program RagDemo;   // not "rag": avoids clashing with unit PasAI.Rag
   cannot answer.
 
   Needs an embedding model:  ollama pull bge-m3
-  Run:  ./bin/rag [-e embed-model] [-m mode] [chat-model]
+  Run:  ./bin/ragdemo [-e embed-model] [-m mode] [chat-model]
         mode is keyword, vector (default) or hybrid. Vector is the default
         because it scored best on these documents in ./bin/rageval. }
 
-{$mode delphi}{$H+}
-{$codepage utf8}
+{$IFDEF FPC}{$mode delphi}{$codepage utf8}{$ENDIF}{$H+}
+{$IFNDEF FPC}{$APPTYPE CONSOLE}{$ENDIF}
 
 uses
   {$IFDEF UNIX}cwstring,{$ENDIF}
@@ -100,9 +100,10 @@ var
   ChatModel, EmbedModel: string;
   Mode, M: TSearchMode;
   ModeFound: Boolean;
-  Start: QWord;
+  Start: UInt64;
   I: Integer;
 begin
+  InitConsole;
   ChatModel := DEFAULT_CHAT_MODEL;
   EmbedModel := DEFAULT_EMBED_MODEL;
   Mode := smVector;
@@ -148,10 +149,10 @@ begin
 
       Chunks := LoadCorpus;
       Writeln(Format('Loaded %d chunks from %s', [Length(Chunks), DOCS_DIR]));
-      Start := GetTickCount64;
+      Start := TickMs;
       Retriever.AddChunks(Chunks);
       Writeln(Format('Indexed with %s: %d dimensions, %.1f s',
-        [EmbedModel, Retriever.Dimensions, (GetTickCount64 - Start) / 1000]));
+        [EmbedModel, Retriever.Dimensions, (TickMs - Start) / 1000]));
       Writeln;
 
       Writeln('=== Without retrieval ===');

@@ -1,4 +1,4 @@
-program CompanionDemo;
+program companion;   // Delphi requires this name to match the file name
 
 { Example 8: an AI coaching companion with memory, a state machine,
   guardrails and a human handover.
@@ -27,8 +27,8 @@ program CompanionDemo;
   -db, profiles are stored in data/members/ and bookings in
   data/bookings.log. }
 
-{$mode delphi}{$H+}
-{$codepage utf8}
+{$IFDEF FPC}{$mode delphi}{$codepage utf8}{$ENDIF}{$H+}
+{$IFNDEF FPC}{$APPTYPE CONSOLE}{$ENDIF}
 
 uses
   {$IFDEF UNIX}cwstring,{$ENDIF}
@@ -311,6 +311,7 @@ var
   Applied: TStringList;
   Positional, I: Integer;
 begin
+  InitConsole;
   MemberId := DEFAULT_MEMBER;
   ModelName := DEFAULT_MODEL;
   UseDb := False;

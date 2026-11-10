@@ -7,7 +7,7 @@ unit PasAI.VectorIndex;
   Approximate structures such as HNSW only pay off at hundreds of
   thousands of vectors, at the cost of complexity and occasional misses. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 

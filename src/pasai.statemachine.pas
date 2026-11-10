@@ -9,7 +9,7 @@ unit PasAI.StateMachine;
   into a state the design does not allow. That makes the flow predictable
   and auditable, which matters in regulated settings. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 

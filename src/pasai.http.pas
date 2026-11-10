@@ -1,6 +1,7 @@
 unit PasAI.Http;
 
-{ Thin HTTP layer on top of fphttpclient.
+{ Thin HTTP layer: fphttpclient in Free Pascal, System.Net.HttpClient in
+  Delphi. The only unit that touches either.
 
   Two ways to receive a response:
   1. HttpPostJSON          : wait until complete, return the whole body.
@@ -8,19 +9,26 @@ unit PasAI.Http;
      Combined with TLineSinkStream, this is the foundation for NDJSON
      streaming (one JSON object per line), the format Ollama uses.
 
-  Delphi note: this is the only unit that touches fphttpclient. When porting
-  to Delphi, only this unit needs replacing (see ARCHITECTURE.md). }
+  Text crosses this unit as string and travels as UTF-8 bytes: request
+  bodies are encoded here, and response text is decoded here, one complete
+  line at a time, so a character split across two network packets is
+  never decoded in halves.
 
-{$mode delphi}{$H+}
+  Delphi note: THTTPClient writes the response into the stream while it
+  arrives on Windows. On other platforms the operating system's HTTP
+  stack may deliver it in larger pieces; streaming then appears in bursts,
+  but the result is the same. }
+
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils;
+  Classes, SysUtils, PasAI.Types;
 
 type
-  { Called for every complete line. The line is already tagged CP_UTF8. }
-  TLineEvent = procedure(const ALine: RawByteString) of object;
+  { Called for every complete line, already decoded. }
+  TLineEvent = procedure(const ALine: string) of object;
 
   { A TStream that stores nothing: written bytes are split on #10 and each
     complete line is passed straight to OnLine. Any remainder not yet
@@ -43,21 +51,24 @@ type
 
   THttpResult = record
     StatusCode: Integer;
-    Body: RawByteString;   // tagged CP_UTF8
+    Body: string;
   end;
 
-function HttpPostJSON(const AURL: string; const ABody: RawByteString;
-  ATimeoutMs: Integer): THttpResult;
+function HttpPostJSON(const AURL, ABody: string; ATimeoutMs: Integer): THttpResult;
 
 { Returns the HTTP status code. Any status is accepted (no exception);
   the caller decides what it means. Network errors still raise. }
-function HttpPostJSONToStream(const AURL: string; const ABody: RawByteString;
-  AOutput: TStream; ATimeoutMs: Integer): Integer;
+function HttpPostJSONToStream(const AURL, ABody: string; AOutput: TStream;
+  ATimeoutMs: Integer): Integer;
 
 implementation
 
 uses
+  {$IFDEF FPC}
   fphttpclient;
+  {$ELSE}
+  System.Net.HttpClient, System.Net.URLClient;
+  {$ENDIF}
 
 { TLineSinkStream }
 
@@ -74,7 +85,7 @@ end;
 
 function TLineSinkStream.Write(const Buffer; Count: Longint): Longint;
 var
-  OldLen: SizeInt;
+  OldLen: Integer;
 begin
   if Count > 0 then
   begin
@@ -99,30 +110,28 @@ var
   Line: RawByteString;
 begin
   Line := ALine;
-  if (Line <> '') and (Line[Length(Line)] = #13) then
+  if (Line <> '') and (Ord(Line[Length(Line)]) = 13) then
     SetLength(Line, Length(Line) - 1);
   if Line = '' then
     Exit;
-  { Bytes from the network are UTF-8. Tag them without converting, so no
-    silent codepage conversion happens when passed on to the JSON parser. }
-  SetCodePage(Line, CP_UTF8, False);
   if Assigned(FOnLine) then
-    FOnLine(Line);
+    FOnLine(Utf8BytesToString(Line));
 end;
 
 procedure TLineSinkStream.EmitCompleteLines;
 var
-  P: SizeInt;
-  Line: RawByteString;
+  I, Start: Integer;
 begin
-  P := Pos(#10, FBuffer);
-  while P > 0 do
-  begin
-    Line := Copy(FBuffer, 1, P - 1);
-    Delete(FBuffer, 1, P);
-    EmitLine(Line);
-    P := Pos(#10, FBuffer);
-  end;
+  { Scan bytes, not characters: #10 never occurs inside a UTF-8 sequence. }
+  Start := 1;
+  for I := 1 to Length(FBuffer) do
+    if Ord(FBuffer[I]) = 10 then
+    begin
+      EmitLine(Copy(FBuffer, Start, I - Start));
+      Start := I + 1;
+    end;
+  if Start > 1 then
+    Delete(FBuffer, 1, Start - 1);
 end;
 
 procedure TLineSinkStream.Flush;
@@ -136,43 +145,68 @@ end;
 
 { HTTP functions }
 
-function HttpPostJSONToStream(const AURL: string; const ABody: RawByteString;
-  AOutput: TStream; ATimeoutMs: Integer): Integer;
+function HttpPostJSONToStream(const AURL, ABody: string; AOutput: TStream;
+  ATimeoutMs: Integer): Integer;
 var
-  Client: TFPHTTPClient;
+  Bytes: RawByteString;
   Body: TMemoryStream;
+  {$IFDEF FPC}
+  Client: TFPHTTPClient;
+  {$ELSE}
+  Client: THTTPClient;
+  Response: IHTTPResponse;
+  {$ENDIF}
 begin
-  Client := TFPHTTPClient.Create(nil);
+  Bytes := StringToUtf8Bytes(ABody);
   Body := TMemoryStream.Create;
   try
-    if ABody <> '' then
-      Body.WriteBuffer(ABody[1], Length(ABody));
+    if Bytes <> '' then
+      Body.WriteBuffer(Bytes[1], Length(Bytes));
     Body.Position := 0;
-    Client.RequestBody := Body;   // Content-Length is added automatically
-    Client.AddHeader('Content-Type', 'application/json');
-    Client.IOTimeout := ATimeoutMs;
-    { An empty array means every status code is accepted (see CheckResponseCode). }
-    Client.HTTPMethod('POST', AURL, AOutput, []);
-    Result := Client.ResponseStatusCode;
+
+    {$IFDEF FPC}
+    Client := TFPHTTPClient.Create(nil);
+    try
+      Client.RequestBody := Body;   // Content-Length is added automatically
+      Client.AddHeader('Content-Type', 'application/json');
+      Client.IOTimeout := ATimeoutMs;
+      { An empty array means every status code is accepted. }
+      Client.HTTPMethod('POST', AURL, AOutput, []);
+      Result := Client.ResponseStatusCode;
+    finally
+      Client.RequestBody := nil;
+      Client.Free;
+    end;
+    {$ELSE}
+    Client := THTTPClient.Create;
+    try
+      Client.ContentType := 'application/json';
+      Client.ConnectionTimeout := ATimeoutMs;
+      Client.ResponseTimeout := ATimeoutMs;
+      Response := Client.Post(AURL, Body, AOutput);
+      Result := Response.StatusCode;
+      Response := nil;   // release before the client that created it
+    finally
+      Client.Free;
+    end;
+    {$ENDIF}
   finally
-    Client.RequestBody := nil;
     Body.Free;
-    Client.Free;
   end;
 end;
 
-function HttpPostJSON(const AURL: string; const ABody: RawByteString;
-  ATimeoutMs: Integer): THttpResult;
+function HttpPostJSON(const AURL, ABody: string; ATimeoutMs: Integer): THttpResult;
 var
   Output: TMemoryStream;
+  Bytes: RawByteString;
 begin
   Output := TMemoryStream.Create;
   try
     Result.StatusCode := HttpPostJSONToStream(AURL, ABody, Output, ATimeoutMs);
-    SetLength(Result.Body, Output.Size);
+    SetLength(Bytes, Output.Size);
     if Output.Size > 0 then
-      Move(Output.Memory^, Result.Body[1], Output.Size);
-    SetCodePage(Result.Body, CP_UTF8, False);
+      Move(Output.Memory^, Bytes[1], Output.Size);
+    Result.Body := Utf8BytesToString(Bytes);
   finally
     Output.Free;
   end;

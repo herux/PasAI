@@ -1,4 +1,4 @@
-program SecurityDemo;
+program security;   // Delphi requires this name to match the file name
 
 { Example 9: securing an agent that can take real actions.
 
@@ -20,8 +20,8 @@ program SecurityDemo;
   Run:  ./bin/security [model]
         ./bin/security -eval [-n N] [model ...] }
 
-{$mode delphi}{$H+}
-{$codepage utf8}
+{$IFDEF FPC}{$mode delphi}{$codepage utf8}{$ENDIF}{$H+}
+{$IFNDEF FPC}{$APPTYPE CONSOLE}{$ENDIF}
 
 uses
   {$IFDEF UNIX}cwstring,{$ENDIF}
@@ -290,6 +290,7 @@ var
   EvalMode: Boolean;
   Repeats, I: Integer;
 begin
+  InitConsole;
   EvalMode := False;
   Repeats := 3;
   Models := TStringList.Create;

@@ -7,12 +7,12 @@ unit DemoTools;
   Kept in one unit so the agent example and the eval run exercise exactly
   the same tools. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
 uses
-  SysUtils, fpjson, PasAI.Schema, PasAI.Tools;
+  SysUtils, PasAI.Types, PasAI.Json, PasAI.Schema, PasAI.Tools;
 
 { A registry with get_current_date, add_days and calculate.
   The caller owns the result. }
@@ -24,7 +24,7 @@ implementation
 
 function ToolCurrentDate(AArgs: TJSONObject): string;
 begin
-  Result := FormatDateTime('yyyy-mm-dd (dddd)', Date);
+  Result := FormatDateTime('yyyy-mm-dd (dddd)', Date, InvariantFormat);
 end;
 
 { Errors meant for the model are raised as EToolError; PasAI.Tools hides
@@ -44,7 +44,7 @@ end;
 function ToolAddDays(AArgs: TJSONObject): string;
 begin
   Result := FormatDateTime('yyyy-mm-dd (dddd)',
-    ParseISODate(AArgs.Strings['date']) + AArgs.Integers['days']);
+    ParseISODate(JsonGetString(AArgs, 'date')) + JsonGetInteger(AArgs, 'days'), InvariantFormat);
 end;
 
 function ToolCalculate(AArgs: TJSONObject): string;
@@ -52,20 +52,20 @@ var
   A, B: Double;
   Op: string;
 begin
-  A := AArgs.Floats['a'];
-  B := AArgs.Floats['b'];
-  Op := AArgs.Strings['op'];
+  A := JsonGetFloat(AArgs, 'a');
+  B := JsonGetFloat(AArgs, 'b');
+  Op := JsonGetString(AArgs, 'op');
   if Op = 'add' then
-    Result := FloatToStr(A + B)
+    Result := FloatToStr(A + B, InvariantFormat)
   else if Op = 'subtract' then
-    Result := FloatToStr(A - B)
+    Result := FloatToStr(A - B, InvariantFormat)
   else if Op = 'multiply' then
-    Result := FloatToStr(A * B)
+    Result := FloatToStr(A * B, InvariantFormat)
   else
   begin
     if B = 0 then
       raise EToolError.Create('division by zero');
-    Result := FloatToStr(A / B);
+    Result := FloatToStr(A / B, InvariantFormat);
   end;
 end;
 

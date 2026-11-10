@@ -1,4 +1,4 @@
-program ExchangeDemo;
+program exchange;   // Delphi requires this name to match the file name
 
 { Example 10: an AI assistant for a crypto exchange that cannot move money.
 
@@ -21,8 +21,8 @@ program ExchangeDemo;
   Run:  ./bin/exchange [model]
         ./bin/exchange -eval [-n N] [model ...] }
 
-{$mode delphi}{$H+}
-{$codepage utf8}
+{$IFDEF FPC}{$mode delphi}{$codepage utf8}{$ENDIF}{$H+}
+{$IFNDEF FPC}{$APPTYPE CONSOLE}{$ENDIF}
 
 uses
   {$IFDEF UNIX}cwstring,{$ENDIF}
@@ -305,6 +305,7 @@ var
   EvalMode: Boolean;
   Repeats, I: Integer;
 begin
+  InitConsole;
   EvalMode := False;
   Repeats := 3;
   Models := TStringList.Create;

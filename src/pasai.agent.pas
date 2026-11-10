@@ -15,7 +15,7 @@ unit PasAI.Agent;
   The step limit is a safety net: a confused model can otherwise keep
   calling tools forever. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 

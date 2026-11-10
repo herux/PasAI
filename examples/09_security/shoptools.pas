@@ -16,12 +16,12 @@ unit ShopTools;
                      and checks on the meaning of the arguments
   - get_sales_report an internal failure whose details must not leak }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
 uses
-  SysUtils, fpjson, PasAI.Types, PasAI.Schema, PasAI.Tools, PasAI.Guardrails;
+  SysUtils, PasAI.Types, PasAI.Json, PasAI.Schema, PasAI.Tools, PasAI.Guardrails;
 
 const
   CUSTOMER_PERMISSIONS = 'orders.read';
@@ -109,7 +109,7 @@ function ToolGetOrder(const ACtx: TToolContext; AArgs: TJSONObject): string;
 var
   I: Integer;
 begin
-  I := FindOrder(AArgs.Strings['order_id']);
+  I := FindOrder(JsonGetString(AArgs, 'order_id'));
   { Someone else's order gets the same answer as a missing one, so a
     customer cannot discover which order numbers exist. }
   if (I < 0) or ((ORDERS[I].Owner <> ACtx.UserId) and
@@ -125,7 +125,7 @@ var
   Phrase: string;
 begin
   for I := 0 to High(TICKETS) do
-    if TICKETS[I].Id = AArgs.Strings['ticket_id'] then
+    if TICKETS[I].Id = JsonGetString(AArgs, 'ticket_id') then
     begin
       Phrase := LooksLikeInjection(TICKETS[I].Text);
       if (Phrase <> '') and Assigned(OnInjectionWarning) then
@@ -147,19 +147,19 @@ var
   I: Integer;
   Amount: Double;
 begin
-  I := FindOrder(AArgs.Strings['order_id']);
+  I := FindOrder(JsonGetString(AArgs, 'order_id'));
   if I < 0 then
     raise EToolError.Create('order not found');
   { The schema only says "a number". What a valid refund is, is business
     logic and belongs here. }
-  Amount := AArgs.Floats['amount'];
+  Amount := JsonGetFloat(AArgs, 'amount');
   if Amount <= 0 then
     raise EToolError.Create('amount must be positive');
   if Amount > ORDERS[I].Total then
     raise EToolError.CreateFmt('amount exceeds the order total of %s',
       [FormatRupiah(ORDERS[I].Total)]);
   Result := Format('Refund of %s for order %s recorded (reason: %s).',
-    [FormatRupiah(Round(Amount)), ORDERS[I].Id, AArgs.Strings['reason']]);
+    [FormatRupiah(Round(Amount)), ORDERS[I].Id, JsonGetString(AArgs, 'reason')]);
 end;
 
 function ToolSalesReport(const ACtx: TToolContext; AArgs: TJSONObject): string;

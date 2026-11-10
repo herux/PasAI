@@ -11,7 +11,7 @@ unit PasAI.Provider;
   slightly differently between FPC and Delphi. A plain class keeps
   ownership explicit: whoever creates the provider frees it. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 

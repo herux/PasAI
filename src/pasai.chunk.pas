@@ -12,12 +12,12 @@ unit PasAI.Chunk;
   title is indexed together with the text: a chunk that only says "Charge
   for 70 minutes" is much easier to find when it carries "Battery" too. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils;
+  Classes, SysUtils, PasAI.Types;
 
 type
   TChunk = record
@@ -29,7 +29,8 @@ type
 
   TChunks = array of TChunk;
 
-{ Split AText into chunks of at most AMaxChars characters (bytes of UTF-8),
+{ Split AText into chunks of at most AMaxChars characters (UTF-8 bytes in
+  Free Pascal, UTF-16 characters in Delphi),
   breaking at paragraphs, or at spaces inside an overlong paragraph. }
 function ChunkText(const AText, ASource: string; AMaxChars: Integer = 800): TChunks;
 
@@ -103,7 +104,7 @@ begin
   while Length(Rest) > AMaxChars do
   begin
     Cut := AMaxChars;
-    while (Cut > 0) and not (Rest[Cut] in [' ', #10]) do
+    while (Cut > 0) and (Rest[Cut] <> ' ') and (Rest[Cut] <> #10) do
       Dec(Cut);
     if Cut = 0 then
       Cut := AMaxChars;   // no space at all: cut hard
@@ -174,16 +175,8 @@ begin
 end;
 
 function ChunkFile(const AFileName: string; AMaxChars: Integer): TChunks;
-var
-  Lines: TStringList;
 begin
-  Lines := TStringList.Create;
-  try
-    Lines.LoadFromFile(AFileName);
-    Result := ChunkText(Lines.Text, ExtractFileName(AFileName), AMaxChars);
-  finally
-    Lines.Free;
-  end;
+  Result := ChunkText(LoadTextFileUtf8(AFileName), ExtractFileName(AFileName), AMaxChars);
 end;
 
 function ChunkFolder(const ADir, AMask: string; AMaxChars: Integer): TChunks;

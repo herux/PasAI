@@ -17,7 +17,7 @@ unit PasAI.Search;
   example when queries are often in a different language than the
   documents and keyword matches are less trustworthy. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 

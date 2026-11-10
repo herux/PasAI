@@ -8,8 +8,8 @@ program chat;
 
   Run:  ./bin/chat [model-name] }
 
-{$mode delphi}{$H+}
-{$codepage utf8}
+{$IFDEF FPC}{$mode delphi}{$codepage utf8}{$ENDIF}{$H+}
+{$IFNDEF FPC}{$APPTYPE CONSOLE}{$ENDIF}
 
 uses
   {$IFDEF UNIX}cwstring,{$ENDIF}
@@ -26,6 +26,7 @@ var
   History: TChatMessages;
   Line, Reply, ModelName: string;
 begin
+  InitConsole;
   ModelName := 'qwen2.5:7b-instruct';
   if ParamCount > 0 then
     ModelName := ParamStr(1);

@@ -13,12 +13,12 @@ unit CoachTools;
   the file store, the bookings table with PostgreSQL. In a real service
   this is also where the coach on duty would be notified. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
 uses
-  SysUtils, fpjson, PasAI.Schema, PasAI.Tools, PasAI.Storage;
+  SysUtils, PasAI.Types, PasAI.Json, PasAI.Schema, PasAI.Tools, PasAI.Storage;
 
 var
   { The member the tool books for, and where bookings are recorded; set by
@@ -51,7 +51,7 @@ end;
 
 function ToolBookCoach(AArgs: TJSONObject): string;
 begin
-  Result := BookCoach(CurrentMemberId, AArgs.Strings['reason'], AArgs.Strings['urgency']);
+  Result := BookCoach(CurrentMemberId, JsonGetString(AArgs, 'reason'), JsonGetString(AArgs, 'urgency'));
 end;
 
 function BuildCoachTools: TToolRegistry;

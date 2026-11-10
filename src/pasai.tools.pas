@@ -52,12 +52,12 @@ unit PasAI.Tools;
   One registry serves one session: Context and the call counters belong to
   that session. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
 uses
-  Classes, SysUtils, fpjson, PasAI.Types;
+  Classes, SysUtils, PasAI.Types, PasAI.Json;
 
 type
   { Raise this from a handler for errors the model should see, such as
@@ -150,7 +150,7 @@ type
       AHandler: TToolHandler; AContextHandler: TContextToolHandler;
       AValidator: TToolValidator; const AOptions: TToolOptions): Integer;
     procedure Audit(const ACall: TToolCall; const AOutcome, ADetail: string;
-      AStart: QWord);
+      AStart: UInt64);
   public
     destructor Destroy; override;
 
@@ -205,7 +205,7 @@ const
 implementation
 
 uses
-  jsonparser, PasAI.Structured;
+  PasAI.Structured;
 
 const
   AUDIT_DETAIL_MAX = 300;
@@ -259,14 +259,14 @@ function TToolRegistry.Register(const AName, ADescription: string;
   AContextHandler: TContextToolHandler; AValidator: TToolValidator;
   const AOptions: TToolOptions): Integer;
 var
-  D: TJSONData;
+  D: TJSONValue;
   N: Integer;
 begin
   if IndexOf(AName) >= 0 then
     raise EPasAIError.CreateFmt('Tool "%s" is already registered', [AName]);
 
-  D := GetJSON(ASchema);
-  if D.JSONType <> jtObject then
+  D := ParseJson(string(ASchema));
+  if JsonKind(D) <> jkObject then
   begin
     D.Free;
     raise EPasAIError.CreateFmt('Schema of tool "%s" must be a JSON object', [AName]);
@@ -337,28 +337,17 @@ end;
 procedure WriteAuditLine(const AFileName: string; const AEntry: TAuditEntry);
 var
   O: TJSONObject;
-  F: TextFile;
 begin
-  O := TJSONObject.Create;
+  O := JsonNewObject;
   try
-    O.Add('time', UTF8String(FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', AEntry.Time)));
-    O.Add('user', UTF8String(AEntry.UserId));
-    O.Add('tool', UTF8String(AEntry.Tool));
-    O.Add('args', UTF8String(AEntry.Arguments));
-    O.Add('outcome', UTF8String(AEntry.Outcome));
-    O.Add('detail', UTF8String(AEntry.Detail));
-    O.Add('ms', AEntry.DurationMs);
-    ForceDirectories(ExtractFileDir(ExpandFileName(AFileName)));
-    AssignFile(F, AFileName);
-    if FileExists(AFileName) then
-      Append(F)
-    else
-      Rewrite(F);
-    try
-      Writeln(F, O.AsJSON);
-    finally
-      CloseFile(F);
-    end;
+    JsonAddString(O, 'time', FormatDateTime('yyyy-mm-dd"T"hh:nn:ss', AEntry.Time, InvariantFormat));
+    JsonAddString(O, 'user', AEntry.UserId);
+    JsonAddString(O, 'tool', AEntry.Tool);
+    JsonAddString(O, 'args', AEntry.Arguments);
+    JsonAddString(O, 'outcome', AEntry.Outcome);
+    JsonAddString(O, 'detail', AEntry.Detail);
+    JsonAddInteger(O, 'ms', AEntry.DurationMs);
+    AppendLineUtf8(AFileName, JsonToText(O));
   finally
     O.Free;
   end;
@@ -378,7 +367,7 @@ begin
 end;
 
 procedure TToolRegistry.Audit(const ACall: TToolCall; const AOutcome, ADetail: string;
-  AStart: QWord);
+  AStart: UInt64);
 var
   E: TAuditEntry;
 begin
@@ -390,7 +379,7 @@ begin
   E.Arguments := ACall.Arguments;
   E.Outcome := AOutcome;
   E.Detail := Copy(ADetail, 1, AUDIT_DETAIL_MAX);
-  E.DurationMs := GetTickCount64 - AStart;
+  E.DurationMs := TickMs - AStart;
   if FAuditFileName <> '' then
     WriteAuditLine(FAuditFileName, E);
   if FAuditSink <> nil then
@@ -423,12 +412,12 @@ end;
 function TToolRegistry.Execute(const ACall: TToolCall): string;
 var
   Index: Integer;
-  D: TJSONData;
+  D: TJSONValue;
   Errors: TStringList;
-  Start: QWord;
+  Start: UInt64;
   Summary: string;
 begin
-  Start := GetTickCount64;
+  Start := TickMs;
 
   { 1. The tool exists. Unknown and unpermitted tools get the same answer,
        so probing reveals nothing about which tools exist. }
@@ -450,7 +439,7 @@ begin
 
   { 3. Arguments }
   try
-    D := GetJSON(UTF8String(ExtractJSONText(ACall.Arguments)));
+    D := ParseJson(ExtractJSONText(ACall.Arguments));
   except
     on E: Exception do
     begin
@@ -461,7 +450,7 @@ begin
 
   Errors := TStringList.Create;
   try
-    if D.JSONType <> jtObject then
+    if JsonKind(D) <> jkObject then
       Errors.Add('arguments must be a JSON object')
     else
       ValidateJSON(D, FSchemas[Index], Errors);

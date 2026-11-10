@@ -12,7 +12,7 @@ unit PasAI.Retriever;
   records its rank in both searches, which makes it easy to see which
   method found what. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 

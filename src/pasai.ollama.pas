@@ -24,7 +24,7 @@ unit PasAI.Ollama;
   Note: this header uses parenthesis-star comment delimiters because the JSON
   examples contain braces, which would end a brace comment early. *)
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
@@ -45,7 +45,7 @@ type
     function Endpoint(const APath: string): string;
     { AFormat: a JSON schema as text, or empty for free-form text. }
     function BuildChatBody(const AMessages: TChatMessages; AStream: Boolean;
-      const AFormat: UTF8String; const ATools: TToolSpecs): RawByteString;
+      const AFormat: UTF8String; const ATools: TToolSpecs): string;
     function DoChat(const AMessages: TChatMessages; const AFormat: UTF8String;
       const ATools: TToolSpecs): TChatMessage;
   public
@@ -88,126 +88,125 @@ type
 implementation
 
 uses
-  Math, fpjson, jsonparser, PasAI.Http;
+  Math, PasAI.Json, PasAI.Http;
 
 const
   MSG_REQUEST_FAILED =
     'Failed to call Ollama at %s: %s. ' +
     'Make sure Ollama is running (open the app or run "ollama serve").';
 
-{ JSON helpers }
+{ Helpers }
 
-function ParseObject(const AText: UTF8String): TJSONObject;
-var
-  D: TJSONData;
+function TrimSlash(const AURL: string): string;
 begin
-  D := GetJSON(AText);
-  if not (D is TJSONObject) then
-  begin
-    D.Free;
-    raise EOllamaError.Create('Response is not a JSON object: ' + Copy(AText, 1, 200));
+  Result := AURL;
+  while (Result <> '') and (Result[Length(Result)] = '/') do
+    SetLength(Result, Length(Result) - 1);
+end;
+
+function ParseResponse(const AText: string): TJSONObject;
+begin
+  try
+    Result := ParseJsonObject(AText);
+  except
+    on E: EPasAIError do
+      raise EOllamaError.Create('Unexpected response from Ollama: ' + Copy(AText, 1, 200));
   end;
-  Result := TJSONObject(D);
 end;
 
 procedure RaiseIfOllamaError(O: TJSONObject);
 var
-  E: TJSONData;
+  E: TJSONValue;
 begin
-  E := O.Find('error');
+  E := JsonFind(O, 'error');
   if E <> nil then
-    raise EOllamaError.Create('Ollama: ' + E.AsString);
-end;
-
-{ Parse a JSON object given as text; an empty text becomes an empty object. }
-function JSONObjectFromText(const AText: string): TJSONData;
-begin
-  if Trim(AText) = '' then
-    Result := TJSONObject.Create
-  else
-    Result := GetJSON(UTF8String(AText));
+    raise EOllamaError.Create('Ollama: ' + JsonAsString(E));
 end;
 
 { Convert Ollama's "message" object into a TChatMessage. }
 function MessageFromJSON(AMsg: TJSONObject): TChatMessage;
 var
-  D, Fn, Args, Id: TJSONData;
-  Calls: TJSONArray;
+  D, Call, Fn, Args, Id: TJSONValue;
   I: Integer;
 begin
   Result := ChatMessage(ROLE_ASSISTANT, '');
 
-  D := AMsg.Find('content');
-  if (D <> nil) and not D.IsNull then
-    Result.Content := D.AsString;
+  D := JsonFind(AMsg, 'content');
+  if (D <> nil) and (JsonKind(D) = jkString) then
+    Result.Content := JsonAsString(D);
 
-  D := AMsg.Find('tool_calls');
-  if (D = nil) or (D.JSONType <> jtArray) then
+  D := JsonFind(AMsg, 'tool_calls');
+  if (D = nil) or (JsonKind(D) <> jkArray) then
     Exit;
 
-  Calls := TJSONArray(D);
-  SetLength(Result.ToolCalls, Calls.Count);
-  for I := 0 to Calls.Count - 1 do
+  SetLength(Result.ToolCalls, JsonCount(D));
+  for I := 0 to JsonCount(D) - 1 do
   begin
     Result.ToolCalls[I].Id := '';
     Result.ToolCalls[I].Name := '';
     Result.ToolCalls[I].Arguments := '{}';
-    if Calls.Items[I].JSONType <> jtObject then
+    Call := JsonItem(D, I);
+    if JsonKind(Call) <> jkObject then
       Continue;
 
-    Id := TJSONObject(Calls.Items[I]).Find('id');
-    if (Id <> nil) and (Id.JSONType = jtString) then
-      Result.ToolCalls[I].Id := Id.AsString;
+    Id := JsonFind(TJSONObject(Call), 'id');
+    if (Id <> nil) and (JsonKind(Id) = jkString) then
+      Result.ToolCalls[I].Id := JsonAsString(Id);
 
-    Fn := TJSONObject(Calls.Items[I]).Find('function');
-    if (Fn = nil) or (Fn.JSONType <> jtObject) then
+    Fn := JsonFind(TJSONObject(Call), 'function');
+    if (Fn = nil) or (JsonKind(Fn) <> jkObject) then
       Continue;
-
-    D := TJSONObject(Fn).Find('name');
-    if D <> nil then
-      Result.ToolCalls[I].Name := D.AsString;
+    Result.ToolCalls[I].Name := JsonStringOr(TJSONObject(Fn), 'name', '');
 
     { Ollama sends an object; accept a string too, as OpenAI-style servers do. }
-    Args := TJSONObject(Fn).Find('arguments');
+    Args := JsonFind(TJSONObject(Fn), 'arguments');
     if Args <> nil then
-      if Args.JSONType = jtString then
-        Result.ToolCalls[I].Arguments := Args.AsString
+      if JsonKind(Args) = jkString then
+        Result.ToolCalls[I].Arguments := JsonAsString(Args)
       else
-        Result.ToolCalls[I].Arguments := Args.AsJSON;
+        Result.ToolCalls[I].Arguments := JsonToText(Args);
   end;
 end;
 
-{ Convert a TChatMessage into Ollama's message JSON. }
+{ Arguments are stored as text; Ollama wants them as an object. }
+function ArgumentsValue(const AText: string): TJSONValue;
+begin
+  if Trim(AText) = '' then
+    Result := JsonNewObject
+  else
+    Result := ParseJson(AText);
+end;
+
 function MessageToJSON(const AMsg: TChatMessage): TJSONObject;
 var
   Calls: TJSONArray;
   Call, Fn: TJSONObject;
   I: Integer;
 begin
-  Result := TJSONObject.Create;
+  Result := JsonNewObject;
   try
-    Result.Add('role', UTF8String(AMsg.Role));
-    Result.Add('content', UTF8String(AMsg.Content));
+    JsonAddString(Result, 'role', AMsg.Role);
+    JsonAddString(Result, 'content', AMsg.Content);
 
     if Length(AMsg.ToolCalls) > 0 then
     begin
-      Calls := TJSONArray.Create;
-      Result.Add('tool_calls', Calls);
+      Calls := JsonNewArray;
+      JsonAddValue(Result, 'tool_calls', Calls);
       for I := 0 to High(AMsg.ToolCalls) do
       begin
-        Call := TJSONObject.Create;
-        Calls.Add(Call);
+        Call := JsonNewObject;
+        JsonArrayAdd(Calls, Call);
         if AMsg.ToolCalls[I].Id <> '' then
-          Call.Add('id', UTF8String(AMsg.ToolCalls[I].Id));
-        Fn := TJSONObject.Create;
-        Call.Add('function', Fn);
-        Fn.Add('name', UTF8String(AMsg.ToolCalls[I].Name));
-        Fn.Add('arguments', JSONObjectFromText(AMsg.ToolCalls[I].Arguments));
+          JsonAddString(Call, 'id', AMsg.ToolCalls[I].Id);
+        Fn := JsonNewObject;
+        JsonAddValue(Call, 'function', Fn);
+        JsonAddString(Fn, 'name', AMsg.ToolCalls[I].Name);
+        JsonAddValue(Fn, 'arguments', ArgumentsValue(AMsg.ToolCalls[I].Arguments));
       end;
     end;
 
     if AMsg.ToolName <> '' then
-      Result.Add('tool_name', UTF8String(AMsg.ToolName));
+      JsonAddString(Result, 'tool_name', AMsg.ToolName);
   except
     Result.Free;
     raise;
@@ -224,7 +223,7 @@ type
     FDone: Boolean;
   public
     constructor Create(AOnChunk: TTextChunkProc);
-    procedure HandleLine(const ALine: RawByteString);
+    procedure HandleLine(const ALine: string);
     property FullText: string read FFullText;
     property Done: Boolean read FDone;
   end;
@@ -235,21 +234,21 @@ begin
   FOnChunk := AOnChunk;
 end;
 
-procedure TOllamaStreamState.HandleLine(const ALine: RawByteString);
+procedure TOllamaStreamState.HandleLine(const ALine: string);
 var
   O: TJSONObject;
-  D: TJSONData;
+  D: TJSONValue;
   Piece: string;
 begin
-  { Each line is a complete JSON object, so multi-byte UTF-8 characters are
-    never cut in half, even when network packets are split arbitrarily. }
-  O := ParseObject(ALine);
+  { Each line is a complete JSON object, so multi-byte characters are never
+    cut in half, even when network packets are split arbitrarily. }
+  O := ParseResponse(ALine);
   try
     RaiseIfOllamaError(O);
-    D := O.FindPath('message.content');
-    if (D <> nil) and not D.IsNull then
+    D := JsonFindPath(O, 'message.content');
+    if (D <> nil) and (JsonKind(D) = jkString) then
     begin
-      Piece := D.AsString;
+      Piece := JsonAsString(D);
       if Piece <> '' then
       begin
         FFullText := FFullText + Piece;
@@ -257,8 +256,8 @@ begin
           FOnChunk(Piece);
       end;
     end;
-    D := O.Find('done');
-    if (D <> nil) and (D.JSONType = jtBoolean) and D.AsBoolean then
+    D := JsonFind(O, 'done');
+    if (D <> nil) and (JsonKind(D) = jkBool) and JsonAsBoolean(D) then
       FDone := True;
   finally
     O.Free;
@@ -281,56 +280,53 @@ end;
 
 function TOllamaClient.Endpoint(const APath: string): string;
 begin
-  Result := FBaseURL;
-  while (Result <> '') and (Result[Length(Result)] = '/') do
-    SetLength(Result, Length(Result) - 1);
-  Result := Result + APath;
+  Result := TrimSlash(FBaseURL) + APath;
 end;
 
 function TOllamaClient.BuildChatBody(const AMessages: TChatMessages;
-  AStream: Boolean; const AFormat: UTF8String; const ATools: TToolSpecs): RawByteString;
+  AStream: Boolean; const AFormat: UTF8String; const ATools: TToolSpecs): string;
 var
   Req, Opts, Tool, Fn: TJSONObject;
   Arr: TJSONArray;
   I: Integer;
 begin
-  Req := TJSONObject.Create;
+  Req := JsonNewObject;
   try
-    Req.Add('model', UTF8String(Model));
-    Req.Add('stream', AStream);
+    JsonAddString(Req, 'model', Model);
+    JsonAddBool(Req, 'stream', AStream);
     if AFormat <> '' then
-      Req.Add('format', GetJSON(AFormat));   // the schema as a JSON object, not a string
+      JsonAddValue(Req, 'format', ParseJson(string(AFormat)));   // an object, not a string
 
-    Arr := TJSONArray.Create;
-    Req.Add('messages', Arr);           // Req now owns Arr
+    Arr := JsonNewArray;
+    JsonAddValue(Req, 'messages', Arr);
     for I := 0 to High(AMessages) do
-      Arr.Add(MessageToJSON(AMessages[I]));
+      JsonArrayAdd(Arr, MessageToJSON(AMessages[I]));
 
     if Length(ATools) > 0 then
     begin
-      Arr := TJSONArray.Create;
-      Req.Add('tools', Arr);
+      Arr := JsonNewArray;
+      JsonAddValue(Req, 'tools', Arr);
       for I := 0 to High(ATools) do
       begin
-        Tool := TJSONObject.Create;
-        Arr.Add(Tool);
-        Tool.Add('type', UTF8String('function'));   // cast avoids an ambiguous overload
-        Fn := TJSONObject.Create;
-        Tool.Add('function', Fn);
-        Fn.Add('name', UTF8String(ATools[I].Name));
-        Fn.Add('description', UTF8String(ATools[I].Description));
-        Fn.Add('parameters', GetJSON(ATools[I].ParametersSchema));
+        Tool := JsonNewObject;
+        JsonArrayAdd(Arr, Tool);
+        JsonAddString(Tool, 'type', 'function');
+        Fn := JsonNewObject;
+        JsonAddValue(Tool, 'function', Fn);
+        JsonAddString(Fn, 'name', ATools[I].Name);
+        JsonAddString(Fn, 'description', ATools[I].Description);
+        JsonAddValue(Fn, 'parameters', ParseJson(string(ATools[I].ParametersSchema)));
       end;
     end;
 
     if Temperature >= 0 then
     begin
-      Opts := TJSONObject.Create;
-      Req.Add('options', Opts);
-      Opts.Add('temperature', TJSONFloat(Temperature));
+      Opts := JsonNewObject;
+      JsonAddValue(Req, 'options', Opts);
+      JsonAddFloat(Opts, 'temperature', Temperature);
     end;
 
-    Result := Req.AsJSON;
+    Result := JsonToText(Req);
   finally
     Req.Free;
   end;
@@ -339,10 +335,10 @@ end;
 function TOllamaClient.DoChat(const AMessages: TChatMessages;
   const AFormat: UTF8String; const ATools: TToolSpecs): TChatMessage;
 var
-  Body: RawByteString;
+  Body: string;
   R: THttpResult;
   O: TJSONObject;
-  D: TJSONData;
+  D: TJSONValue;
 begin
   { Built outside the try below, so an invalid schema is reported as such
     and not as a connection problem. }
@@ -354,13 +350,13 @@ begin
       raise EOllamaError.CreateFmt(MSG_REQUEST_FAILED, [FBaseURL, E.Message]);
   end;
 
-  O := ParseObject(R.Body);
+  O := ParseResponse(R.Body);
   try
     RaiseIfOllamaError(O);
     if R.StatusCode <> 200 then
       raise EOllamaError.CreateFmt('Ollama returned HTTP %d', [R.StatusCode]);
-    D := O.Find('message');
-    if (D = nil) or (D.JSONType <> jtObject) then
+    D := JsonFind(O, 'message');
+    if (D = nil) or (JsonKind(D) <> jkObject) then
       raise EOllamaError.Create('Ollama response has no message');
     Result := MessageFromJSON(TJSONObject(D));
   finally
@@ -391,7 +387,7 @@ var
   State: TOllamaStreamState;
   Sink: TLineSinkStream;
   Status: Integer;
-  Body: RawByteString;
+  Body: string;
 begin
   Body := BuildChatBody(AMessages, True, '', nil);
   State := TOllamaStreamState.Create(AOnChunk);
@@ -419,7 +415,6 @@ begin
   end;
 end;
 
-
 { TOllamaEmbedder }
 
 constructor TOllamaEmbedder.Create(const AModel: string; const ABaseURL: string);
@@ -440,52 +435,48 @@ function TOllamaEmbedder.EmbedBatch(const ATexts: array of string;
 var
   Req, O: TJSONObject;
   Input: TJSONArray;
-  Body: RawByteString;
+  Body: string;
   R: THttpResult;
-  D, Row: TJSONData;
-  URL: string;
+  D, Row: TJSONValue;
   I, J: Integer;
 begin
-  Req := TJSONObject.Create;
+  Req := JsonNewObject;
   try
-    Req.Add('model', UTF8String(Model));
-    Input := TJSONArray.Create;
-    Req.Add('input', Input);
+    JsonAddString(Req, 'model', Model);
+    Input := JsonNewArray;
+    JsonAddValue(Req, 'input', Input);
     for I := AFrom to AFrom + ACount - 1 do
-      Input.Add(UTF8String(ATexts[I]));
-    Body := Req.AsJSON;
+      JsonArrayAddString(Input, ATexts[I]);
+    Body := JsonToText(Req);
   finally
     Req.Free;
   end;
 
-  URL := FBaseURL;
-  while (URL <> '') and (URL[Length(URL)] = '/') do
-    SetLength(URL, Length(URL) - 1);
   try
-    R := HttpPostJSON(URL + '/api/embed', Body, FTimeoutMs);
+    R := HttpPostJSON(TrimSlash(FBaseURL) + '/api/embed', Body, FTimeoutMs);
   except
     on E: Exception do
       raise EOllamaError.CreateFmt(MSG_REQUEST_FAILED, [FBaseURL, E.Message]);
   end;
 
-  O := ParseObject(R.Body);
+  O := ParseResponse(R.Body);
   try
     RaiseIfOllamaError(O);
     if R.StatusCode <> 200 then
       raise EOllamaError.CreateFmt('Ollama returned HTTP %d', [R.StatusCode]);
-    D := O.Find('embeddings');
-    if (D = nil) or (D.JSONType <> jtArray) then
+    D := JsonFind(O, 'embeddings');
+    if (D = nil) or (JsonKind(D) <> jkArray) then
       raise EOllamaError.Create('Ollama response has no embeddings');
 
-    SetLength(Result, D.Count);
-    for I := 0 to D.Count - 1 do
+    SetLength(Result, JsonCount(D));
+    for I := 0 to JsonCount(D) - 1 do
     begin
-      Row := D.Items[I];
-      if Row.JSONType <> jtArray then
+      Row := JsonItem(D, I);
+      if JsonKind(Row) <> jkArray then
         raise EOllamaError.Create('Embedding is not an array');
-      SetLength(Result[I], Row.Count);
-      for J := 0 to Row.Count - 1 do
-        Result[I][J] := Row.Items[J].AsFloat;
+      SetLength(Result[I], JsonCount(Row));
+      for J := 0 to JsonCount(Row) - 1 do
+        Result[I][J] := JsonAsFloat(JsonItem(Row, J));
     end;
   finally
     O.Free;

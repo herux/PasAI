@@ -42,7 +42,7 @@ unit PasAI.Eval;
   Results carry a model name and an optional variant label (for example a
   prompt version), so one run can compare models x variants. *)
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
@@ -119,24 +119,24 @@ procedure SaveEvalCSV(const AResults: TEvalResults; const AFileName: string);
 implementation
 
 uses
-  Math, fpjson, jsonparser;
+  Math, PasAI.Json;
 
 { Dataset loading }
 
 function RequiredString(O: TJSONObject; const AName, AContext: string): string;
 var
-  D: TJSONData;
+  D: TJSONValue;
 begin
-  D := O.Find(AName);
-  if (D = nil) or (D.JSONType <> jtString) then
+  D := JsonFind(O, AName);
+  if (D = nil) or (JsonKind(D) <> jkString) then
     raise EEvalError.CreateFmt('%s: missing string field "%s"', [AContext, AName]);
-  Result := D.AsString;
+  Result := JsonAsString(D);
 end;
 
 function ParseCheck(K: TJSONObject; const AContext: string): TEvalCheck;
 var
   Kind: string;
-  D: TJSONData;
+  D: TJSONValue;
   I: Integer;
 begin
   Result.Values := nil;
@@ -150,23 +150,23 @@ begin
       Result.Kind := ckContainsAny
     else
       Result.Kind := ckNotContains;
-    D := K.Find('values');
-    if (D = nil) or (D.JSONType <> jtArray) or (D.Count = 0) then
+    D := JsonFind(K, 'values');
+    if (D = nil) or (JsonKind(D) <> jkArray) or (JsonCount(D) = 0) then
       raise EEvalError.CreateFmt('%s: "%s" needs a non-empty "values" array', [AContext, Kind]);
-    SetLength(Result.Values, D.Count);
-    for I := 0 to D.Count - 1 do
-      Result.Values[I] := D.Items[I].AsString;
+    SetLength(Result.Values, JsonCount(D));
+    for I := 0 to JsonCount(D) - 1 do
+      Result.Values[I] := JsonAsString(JsonItem(D, I));
   end
   else if Kind = 'tool_called' then
   begin
     Result.Kind := ckToolCalled;
     Result.ToolName := RequiredString(K, 'tool', AContext);
-    D := K.Find('args');
+    D := JsonFind(K, 'args');
     if D <> nil then
     begin
-      if D.JSONType <> jtObject then
+      if JsonKind(D) <> jkObject then
         raise EEvalError.CreateFmt('%s: "args" must be an object', [AContext]);
-      Result.ToolArgs := D.AsJSON;
+      Result.ToolArgs := JsonToText(D);
     end;
   end
   else if Kind = 'tool_not_called' then
@@ -182,21 +182,13 @@ end;
 
 function LoadEvalCases(const AFileName: string): TEvalCases;
 var
-  FS: TFileStream;
-  Root: TJSONData;
-  Cases, Checks: TJSONData;
-  C: TJSONObject;
+  Root, Cases, Checks, C: TJSONValue;
   I, J: Integer;
   Context: string;
 begin
   Result := nil;
   try
-    FS := TFileStream.Create(AFileName, fmOpenRead or fmShareDenyWrite);
-    try
-      Root := GetJSON(FS);
-    finally
-      FS.Free;
-    end;
+    Root := ParseJson(LoadTextFileUtf8(AFileName));
   except
     on E: Exception do
       raise EEvalError.CreateFmt('Cannot read dataset %s: %s', [AFileName, E.Message]);
@@ -204,31 +196,31 @@ begin
 
   try
     Cases := nil;
-    if Root.JSONType = jtObject then
-      Cases := TJSONObject(Root).Find('cases');
-    if (Cases = nil) or (Cases.JSONType <> jtArray) then
+    if JsonKind(Root) = jkObject then
+      Cases := JsonFind(TJSONObject(Root), 'cases');
+    if (Cases = nil) or (JsonKind(Cases) <> jkArray) then
       raise EEvalError.CreateFmt('%s: expected an object with a "cases" array', [AFileName]);
 
-    SetLength(Result, Cases.Count);
-    for I := 0 to Cases.Count - 1 do
+    SetLength(Result, JsonCount(Cases));
+    for I := 0 to JsonCount(Cases) - 1 do
     begin
-      if Cases.Items[I].JSONType <> jtObject then
+      C := JsonItem(Cases, I);
+      if JsonKind(C) <> jkObject then
         raise EEvalError.CreateFmt('%s: case #%d is not an object', [AFileName, I + 1]);
-      C := TJSONObject(Cases.Items[I]);
       Context := Format('%s case #%d', [AFileName, I + 1]);
-      Result[I].Id := RequiredString(C, 'id', Context);
+      Result[I].Id := RequiredString(TJSONObject(C), 'id', Context);
       Context := Format('%s case "%s"', [AFileName, Result[I].Id]);
-      Result[I].Input := RequiredString(C, 'input', Context);
+      Result[I].Input := RequiredString(TJSONObject(C), 'input', Context);
 
-      Checks := C.Find('checks');
-      if (Checks = nil) or (Checks.JSONType <> jtArray) then
+      Checks := JsonFind(TJSONObject(C), 'checks');
+      if (Checks = nil) or (JsonKind(Checks) <> jkArray) then
         raise EEvalError.CreateFmt('%s: missing "checks" array', [Context]);
-      SetLength(Result[I].Checks, Checks.Count);
-      for J := 0 to Checks.Count - 1 do
+      SetLength(Result[I].Checks, JsonCount(Checks));
+      for J := 0 to JsonCount(Checks) - 1 do
       begin
-        if Checks.Items[J].JSONType <> jtObject then
+        if JsonKind(JsonItem(Checks, J)) <> jkObject then
           raise EEvalError.CreateFmt('%s: check #%d is not an object', [Context, J + 1]);
-        Result[I].Checks[J] := ParseCheck(TJSONObject(Checks.Items[J]),
+        Result[I].Checks[J] := ParseCheck(TJSONObject(JsonItem(Checks, J)),
           Format('%s check #%d', [Context, J + 1]));
       end;
     end;
@@ -241,26 +233,28 @@ end;
 
 function ExpandMacros(const S: string): string;
 begin
-  Result := StringReplace(S, '$TODAY', FormatDateTime('yyyy-mm-dd', Date), [rfReplaceAll]);
-  Result := StringReplace(Result, '$WEEKDAY', FormatDateTime('dddd', Date), [rfReplaceAll]);
+  Result := StringReplace(S, '$TODAY', FormatDateTime('yyyy-mm-dd', Date, InvariantFormat),
+    [rfReplaceAll]);
+  Result := StringReplace(Result, '$WEEKDAY', FormatDateTime('dddd', Date, InvariantFormat),
+    [rfReplaceAll]);
 end;
 
-function ValuesEqual(AExpected, AActual: TJSONData): Boolean;
+function ValuesEqual(AExpected, AActual: TJSONValue): Boolean;
 begin
-  if (AExpected.JSONType = jtNumber) and (AActual.JSONType = jtNumber) then
-    Result := SameValue(AExpected.AsFloat, AActual.AsFloat)
-  else if AExpected.JSONType = jtString then
-    Result := (AActual.JSONType = jtString) and
-      (string(AActual.AsString) = ExpandMacros(AExpected.AsString))
+  if (JsonKind(AExpected) = jkNumber) and (JsonKind(AActual) = jkNumber) then
+    Result := SameValue(JsonAsFloat(AExpected), JsonAsFloat(AActual))
+  else if JsonKind(AExpected) = jkString then
+    Result := (JsonKind(AActual) = jkString) and
+      (JsonAsString(AActual) = ExpandMacros(JsonAsString(AExpected)))
   else
-    Result := AExpected.AsJSON = AActual.AsJSON;
+    Result := JsonEquals(AExpected, AActual);
 end;
 
 { True when every key of AExpected is present in AActual with an equal value.
   Extra keys in AActual are allowed. }
 function ArgsMatch(const AActual, AExpected: string): Boolean;
 var
-  Act, Exp, V: TJSONData;
+  Act, Exp, V: TJSONValue;
   I: Integer;
 begin
   if Trim(AExpected) = '' then
@@ -269,17 +263,17 @@ begin
   Exp := nil;
   try
     try
-      Act := GetJSON(UTF8String(AActual));
+      Act := ParseJson(AActual);
     except
       Exit(False);
     end;
-    Exp := GetJSON(UTF8String(AExpected));
-    if (Act.JSONType <> jtObject) or (Exp.JSONType <> jtObject) then
+    Exp := ParseJson(AExpected);
+    if (JsonKind(Act) <> jkObject) or (JsonKind(Exp) <> jkObject) then
       Exit(False);
-    for I := 0 to Exp.Count - 1 do
+    for I := 0 to JsonCount(Exp) - 1 do
     begin
-      V := TJSONObject(Act).Find(TJSONObject(Exp).Names[I]);
-      if (V = nil) or not ValuesEqual(Exp.Items[I], V) then
+      V := JsonFind(TJSONObject(Act), JsonName(TJSONObject(Exp), I));
+      if (V = nil) or not ValuesEqual(JsonItem(Exp, I), V) then
         Exit(False);
     end;
     Result := True;
@@ -423,7 +417,7 @@ var
   History: TChatMessages;
   Failures: TStringList;
   Res: TEvalResult;
-  Start: QWord;
+  Start: UInt64;
 begin
   Failures := TStringList.Create;
   try
@@ -437,7 +431,7 @@ begin
         Res.CaseId := ACases[I].Id;
         Res.Run := R;
         Res.Answer := '';
-        Start := GetTickCount64;
+        Start := TickMs;
         try
           Res.Answer := ATarget(AProvider, ACases[I].Input, History);
           Res.Passed := RunChecks(ACases[I], Res.Answer, History, Failures);
@@ -448,7 +442,7 @@ begin
             Res.Passed := False;
           end;
         end;
-        Res.DurationMs := GetTickCount64 - Start;
+        Res.DurationMs := TickMs - Start;
         Res.Failures := JoinLines(Failures, '; ');
 
         N := Length(AResults);
@@ -559,7 +553,7 @@ begin
         AResults[I].DurationMs,
         CSVField(AResults[I].Failures),
         CSVField(AResults[I].Answer)]));
-    Lines.SaveToFile(AFileName);
+    SaveTextFileUtf8(AFileName, Lines.Text);
   finally
     Lines.Free;
   end;

@@ -1,6 +1,6 @@
 # PasAI
 
-An AI engineering library for **Free Pascal** (with **Delphi** support planned), written from scratch.
+An AI engineering library for **Free Pascal** and **Delphi**, written from scratch.
 
 PasAI has two goals: to understand AI engineering from first principles, without
 frameworks hiding how things work, and to give the Pascal ecosystem solid,
@@ -33,11 +33,11 @@ Models run locally and for free through [Ollama](https://ollama.com).
 5. Evaluation harness *(done, ahead of step 4)*
 6. Conversation memory, state machines, guardrails, human handover *(done)*
 7. PostgreSQL persistence *(done)*
-8. Delphi port
+8. Delphi port *(done)*
 
 ## Requirements
 
-- Free Pascal 3.2.2 (`fpc -iV` prints `3.2.2`)
+- Free Pascal 3.2.2 (`fpc -iV` prints `3.2.2`), or Delphi 13 (see "Building with Delphi")
 - [Ollama](https://ollama.com/download), running locally
 - At least one chat model:
   ```sh
@@ -68,9 +68,9 @@ Free Pascal 3.2.2.
 ./bin/chat llama3.1       # use a different model
 ./bin/providers          # same code running on a mock and on Ollama
 ./bin/extract            # free text to a Pascal record via JSON schema
-./bin/agent              # a model using Pascal tools for math and dates
+./bin/agentdemo          # a model using Pascal tools for math and dates
 ./bin/runeval -p v1,v2 qwen2.5:7b-instruct llama3.1   # compare models x prompt versions
-./bin/rag                # answers from documents, with citations (needs: ollama pull bge-m3)
+./bin/ragdemo            # answers from documents, with citations (needs: ollama pull bge-m3)
 ./bin/rageval            # retrieval quality (hit@k, MRR) for several configurations
 ./bin/companion heru     # a coaching companion that remembers you between sessions
 ./bin/security           # tool permissions, confirmation and audit; a prompt injection attack
@@ -79,6 +79,29 @@ Free Pascal 3.2.2.
 ./bin/companion -db heru # the same companion, stored in PostgreSQL
 ./bin/dbtool report       # what the event tables say about the service
 ```
+
+## Building with Delphi
+
+The same sources compile with Delphi 13.
+
+Windows 64-bit, from a command prompt:
+
+```bat
+build-delphi.bat
+bin\win64\hello.exe
+```
+
+macOS ARM: open an example's `.dpr` in the IDE, add the macOS ARM 64-bit target
+platform, connect PAServer on the Mac, and add `..\..\src;..\common` to the
+project's search path.
+
+Run the programs from the project root: they read `examples/...` and `db/...`
+with relative paths.
+
+The PostgreSQL examples use FireDAC in Delphi, whose PostgreSQL driver needs an
+edition with client/server database access (Enterprise or Architect). On Windows
+they also need `libpq.dll` from the PostgreSQL installer; PasAI looks in
+`C:\Program Files\PostgreSQL\NN\bin`, or set `PASAI_LIBPQ` to its full path.
 
 ## Usage
 
@@ -121,3 +144,7 @@ examples/common/   units shared by several examples
 db/         docker-compose.yml and SQL migrations
 lib/ bin/   build output (not tracked)
 ```
+
+## License
+
+PasAI is released under the [MIT License](LICENSE).

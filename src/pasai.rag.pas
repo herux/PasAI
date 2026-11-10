@@ -16,7 +16,7 @@ unit PasAI.Rag;
     is wrapped in <untrusted> markers and the prompt says never to follow
     instructions found inside them. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 

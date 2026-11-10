@@ -1,4 +1,4 @@
-program DbTool;
+program dbtool;   // Delphi requires this name to match the file name
 
 { Example 11: the database behind the companion.
 
@@ -17,12 +17,12 @@ program DbTool;
   defaults match db/docker-compose.yml. Start the database with:
     docker compose -f db/docker-compose.yml up -d }
 
-{$mode delphi}{$H+}
-{$codepage utf8}
+{$IFDEF FPC}{$mode delphi}{$codepage utf8}{$ENDIF}{$H+}
+{$IFNDEF FPC}{$APPTYPE CONSOLE}{$ENDIF}
 
 uses
   {$IFDEF UNIX}cwstring,{$ENDIF}
-  Classes, SysUtils, sqldb, PasAI.Pg;
+  Classes, SysUtils, {$IFDEF FPC}DB,{$ELSE}Data.DB,{$ENDIF} PasAI.Types, PasAI.Pg;
 
 const
   MIGRATIONS_DIR = 'db/migrations';
@@ -33,7 +33,7 @@ var
 { Print every row of a query as aligned columns. }
 procedure PrintQuery(const ATitle, ASQL: string; const AParams: array of const);
 var
-  Q: TSQLQuery;
+  Q: TDataSet;
   Widths: array of Integer;
   Line: string;
   I, Rows: Integer;
@@ -177,6 +177,7 @@ end;
 var
   Command: string;
 begin
+  InitConsole;
   if ParamCount < 1 then
   begin
     Usage;

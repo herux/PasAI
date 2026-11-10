@@ -20,7 +20,7 @@ unit PasAI.Guardrails;
   classifiers make mistakes. Used together, and backed by a human handover,
   they make failures rarer and visible. }
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
@@ -95,21 +95,34 @@ function ClassifyInput(AProvider: TLLMProvider; const AText, AScope: string): TI
 implementation
 
 uses
-  fpjson, PasAI.BM25, PasAI.Schema, PasAI.Structured;
+  PasAI.Json, PasAI.BM25, PasAI.Schema, PasAI.Structured;
 
 function CountCJK(const AText: string): Integer;
 var
   I: Integer;
+  {$IFDEF FPC}
   B: Byte;
+  {$ELSE}
+  C: Word;
+  {$ENDIF}
 begin
-  { In UTF-8, CJK ideographs, kana and hangul start with lead bytes E3..ED.
-    E2 is skipped: it starts common punctuation such as dashes and quotes. }
   Result := 0;
   for I := 1 to Length(AText) do
   begin
+    {$IFDEF FPC}
+    { A string holds UTF-8 bytes: CJK ideographs, kana and hangul start with
+      lead bytes E3..ED. E2 is skipped: it starts common punctuation such as
+      dashes and quotes. }
     B := Ord(AText[I]);
     if (B >= $E3) and (B <= $ED) then
       Inc(Result);
+    {$ELSE}
+    { A string holds UTF-16 characters: kana, CJK ideographs and hangul. }
+    C := Ord(AText[I]);
+    if ((C >= $3040) and (C <= $30FF)) or ((C >= $3400) and (C <= $9FFF)) or
+       ((C >= $AC00) and (C <= $D7AF)) or ((C >= $F900) and (C <= $FAFF)) then
+      Inc(Result);
+    {$ENDIF}
   end;
 end;
 
@@ -284,8 +297,8 @@ begin
   end;
 
   try
-    Category := Obj.Strings['category'];
-    Result.Reason := Obj.Strings['reason'];
+    Category := JsonStringOr(Obj, 'category', 'normal');
+    Result.Reason := JsonStringOr(Obj, 'reason', '');
     for C := Low(TInputCategory) to High(TInputCategory) do
       if INPUT_CATEGORY_NAMES[C] = Category then
         Result.Category := C;

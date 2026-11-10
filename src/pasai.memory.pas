@@ -23,7 +23,7 @@ unit PasAI.Memory;
     {"id": "heru", "state": "coaching", "sessions": 3,
      "summary": "...", "facts": {"name": "Heru", "goal": "..."}} *)
 
-{$mode delphi}{$H+}
+{$IFDEF FPC}{$mode delphi}{$ENDIF}{$H+}
 
 interface
 
@@ -75,7 +75,7 @@ function CompactHistory(AProvider: TLLMProvider; var AHistory: TChatMessages;
 implementation
 
 uses
-  fpjson, jsonparser, PasAI.Structured;
+  PasAI.Json, PasAI.Structured;
 
 const
   FACTS_SCHEMA =
@@ -112,22 +112,11 @@ begin
   inherited Destroy;
 end;
 
-function StringField(O: TJSONObject; const AName: string): string;
-var
-  D: TJSONData;
-begin
-  D := O.Find(AName);
-  if (D <> nil) and (D.JSONType = jtString) then
-    Result := D.AsString
-  else
-    Result := '';
-end;
 
 class function TMemberProfile.Load(const ADir, AId: string): TMemberProfile;
 var
-  FS: TFileStream;
-  Root, D: TJSONData;
-  Facts: TJSONObject;
+  Root: TJSONObject;
+  D: TJSONValue;
   I: Integer;
 begin
   Result := TMemberProfile.Create(AId, IncludeTrailingPathDelimiter(ADir) + AId + '.json');
@@ -135,27 +124,17 @@ begin
     Exit;
 
   try
-    FS := TFileStream.Create(Result.FileName, fmOpenRead or fmShareDenyWrite);
+    Root := ParseJsonObject(LoadTextFileUtf8(Result.FileName));
     try
-      Root := GetJSON(FS);
-    finally
-      FS.Free;
-    end;
-    try
-      if Root.JSONType <> jtObject then
-        raise EPasAIError.Create('not a JSON object');
-      Result.FState := StringField(TJSONObject(Root), 'state');
-      Result.FSummary := StringField(TJSONObject(Root), 'summary');
-      D := TJSONObject(Root).Find('sessions');
-      if (D <> nil) and (D.JSONType = jtNumber) then
-        Result.FSessions := D.AsInteger;
-      D := TJSONObject(Root).Find('facts');
-      if (D <> nil) and (D.JSONType = jtObject) then
-      begin
-        Facts := TJSONObject(D);
-        for I := 0 to Facts.Count - 1 do
-          Result.FFacts.Values[Facts.Names[I]] := Facts.Items[I].AsString;
-      end;
+      Result.FState := JsonStringOr(Root, 'state', '');
+      Result.FSummary := JsonStringOr(Root, 'summary', '');
+      D := JsonFind(Root, 'sessions');
+      if (D <> nil) and (JsonKind(D) = jkNumber) then
+        Result.FSessions := JsonAsInteger(D);
+      D := JsonFind(Root, 'facts');
+      if (D <> nil) and (JsonKind(D) = jkObject) then
+        for I := 0 to JsonCount(D) - 1 do
+          Result.FFacts.Values[JsonName(TJSONObject(D), I)] := JsonAsString(JsonItem(D, I));
     finally
       Root.Free;
     end;
@@ -172,33 +151,24 @@ end;
 procedure TMemberProfile.Save;
 var
   O, Facts: TJSONObject;
-  Text: UTF8String;
-  FS: TFileStream;
+  Text: string;
   I: Integer;
 begin
-  O := TJSONObject.Create;
+  O := JsonNewObject;
   try
-    O.Add('id', UTF8String(FId));
-    O.Add('state', UTF8String(FState));
-    O.Add('sessions', FSessions);
-    O.Add('summary', UTF8String(FSummary));
-    Facts := TJSONObject.Create;
-    O.Add('facts', Facts);
+    JsonAddString(O, 'id', FId);
+    JsonAddString(O, 'state', FState);
+    JsonAddInteger(O, 'sessions', FSessions);
+    JsonAddString(O, 'summary', FSummary);
+    Facts := JsonNewObject;
+    JsonAddValue(O, 'facts', Facts);
     for I := 0 to FFacts.Count - 1 do
-      Facts.Add(UTF8String(FFacts.Names[I]), UTF8String(FFacts.ValueFromIndex[I]));
-    Text := O.FormatJSON + LineEnding;
+      JsonAddString(Facts, FFacts.Names[I], FFacts.ValueFromIndex[I]);
+    Text := JsonFormat(O) + LineEnding;
   finally
     O.Free;
   end;
-
-  ForceDirectories(ExtractFileDir(FFileName));
-  FS := TFileStream.Create(FFileName, fmCreate);
-  try
-    if Text <> '' then
-      FS.WriteBuffer(Text[1], Length(Text));
-  finally
-    FS.Free;
-  end;
+  SaveTextFileUtf8(FFileName, Text);
 end;
 
 function TMemberProfile.HasFact(const AKey: string): Boolean;
@@ -223,7 +193,7 @@ var
 begin
   Result := LowerCase(Trim(AKey));
   for I := 1 to Length(Result) do
-    if not (Result[I] in ['a'..'z', '0'..'9']) then
+    if not IsAsciiAlnum(Result[I]) then
       Result[I] := '_';
 end;
 
@@ -232,7 +202,7 @@ procedure UpdateFacts(AProvider: TLLMProvider; AProfile: TMemberProfile;
 var
   Msgs: TChatMessages;
   Obj: TJSONObject;
-  List, Item: TJSONData;
+  List, Item: TJSONValue;
   Known, Key, Value: string;
   I: Integer;
 begin
@@ -249,16 +219,16 @@ begin
 
   Obj := ChatStructured(AProvider, Msgs, FACTS_SCHEMA, 2);
   try
-    List := Obj.Find('facts');
-    if (List = nil) or (List.JSONType <> jtArray) then
+    List := JsonFind(Obj, 'facts');
+    if (List = nil) or (JsonKind(List) <> jkArray) then
       Exit;
-    for I := 0 to List.Count - 1 do
+    for I := 0 to JsonCount(List) - 1 do
     begin
-      Item := List.Items[I];
-      if Item.JSONType <> jtObject then
+      Item := JsonItem(List, I);
+      if JsonKind(Item) <> jkObject then
         Continue;
-      Key := NormalizeKey(TJSONObject(Item).Strings['key']);
-      Value := Trim(TJSONObject(Item).Strings['value']);
+      Key := NormalizeKey(JsonStringOr(TJSONObject(Item), 'key', ''));
+      Value := Trim(JsonStringOr(TJSONObject(Item), 'value', ''));
       if (Key = '') or (Value = '') then
         Continue;
       if AProfile.Facts.Values[Key] <> Value then
