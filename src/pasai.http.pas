@@ -58,12 +58,23 @@ type
     Body: string;
   end;
 
+  THttpHeader = record
+    Name: string;
+    Value: string;
+  end;
+
+  THttpHeaders = array of THttpHeader;
+
 function HttpPostJSON(const AURL, ABody: string; ATimeoutMs: Integer): THttpResult;
+function HttpPostJSONWithHeaders(const AURL, ABody: string;
+  const AHeaders: THttpHeaders; ATimeoutMs: Integer): THttpResult;
 
 { Returns the HTTP status code. Any status is accepted (no exception);
   the caller decides what it means. Network errors still raise. }
 function HttpPostJSONToStream(const AURL, ABody: string; AOutput: TStream;
   ATimeoutMs: Integer): Integer;
+function HttpPostJSONToStreamWithHeaders(const AURL, ABody: string;
+  AOutput: TStream; const AHeaders: THttpHeaders; ATimeoutMs: Integer): Integer;
 
 implementation
 
@@ -149,16 +160,18 @@ end;
 
 { HTTP functions }
 
-function HttpPostJSONToStream(const AURL, ABody: string; AOutput: TStream;
-  ATimeoutMs: Integer): Integer;
+function HttpPostJSONToStreamWithHeaders(const AURL, ABody: string;
+  AOutput: TStream; const AHeaders: THttpHeaders; ATimeoutMs: Integer): Integer;
 var
   Bytes: RawByteString;
   Body: TMemoryStream;
+  I: Integer;
   {$IFDEF FPC}
   Client: TFPHTTPClient;
   {$ELSE}
   Client: THTTPClient;
   Response: IHTTPResponse;
+  Headers: TNetHeaders;
   {$ENDIF}
 begin
   Bytes := StringToUtf8Bytes(ABody);
@@ -173,6 +186,8 @@ begin
     try
       Client.RequestBody := Body;   // Content-Length is added automatically
       Client.AddHeader('Content-Type', 'application/json');
+      for I := 0 to High(AHeaders) do
+        Client.AddHeader(AHeaders[I].Name, AHeaders[I].Value);
       Client.IOTimeout := ATimeoutMs;
       Client.VerifySSLCertificate := True;   // off by default in FPC
       { An empty array means every status code is accepted. }
@@ -188,6 +203,13 @@ begin
       Client.ContentType := 'application/json';
       Client.ConnectionTimeout := ATimeoutMs;
       Client.ResponseTimeout := ATimeoutMs;
+      SetLength(Headers, Length(AHeaders));
+      for I := 0 to High(AHeaders) do
+      begin
+        Headers[I].Name := AHeaders[I].Name;
+        Headers[I].Value := AHeaders[I].Value;
+      end;
+      Client.CustomHeaders := Headers;
       Response := Client.Post(AURL, Body, AOutput);
       Result := Response.StatusCode;
       Response := nil;   // release before the client that created it
@@ -200,14 +222,22 @@ begin
   end;
 end;
 
-function HttpPostJSON(const AURL, ABody: string; ATimeoutMs: Integer): THttpResult;
+function HttpPostJSONToStream(const AURL, ABody: string; AOutput: TStream;
+  ATimeoutMs: Integer): Integer;
+begin
+  Result := HttpPostJSONToStreamWithHeaders(AURL, ABody, AOutput, nil, ATimeoutMs);
+end;
+
+function HttpPostJSONWithHeaders(const AURL, ABody: string;
+  const AHeaders: THttpHeaders; ATimeoutMs: Integer): THttpResult;
 var
   Output: TMemoryStream;
   Bytes: RawByteString;
 begin
   Output := TMemoryStream.Create;
   try
-    Result.StatusCode := HttpPostJSONToStream(AURL, ABody, Output, ATimeoutMs);
+    Result.StatusCode := HttpPostJSONToStreamWithHeaders(
+      AURL, ABody, Output, AHeaders, ATimeoutMs);
     SetLength(Bytes, Output.Size);
     if Output.Size > 0 then
       Move(Output.Memory^, Bytes[1], Output.Size);
@@ -215,6 +245,11 @@ begin
   finally
     Output.Free;
   end;
+end;
+
+function HttpPostJSON(const AURL, ABody: string; ATimeoutMs: Integer): THttpResult;
+begin
+  Result := HttpPostJSONWithHeaders(AURL, ABody, nil, ATimeoutMs);
 end;
 
 end.

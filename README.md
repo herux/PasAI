@@ -15,6 +15,7 @@ Models run locally and for free through [Ollama](https://ollama.com).
 - Chat client for Ollama, blocking and streaming
 - Streaming without threads, built on a line-splitting `TStream`
 - Provider abstraction (`TLLMProvider`): application code is independent of the backend
+- OpenAI-compatible cloud provider: chat, SSE streaming, JSON schema output, and tool calling
 - Mock provider for deterministic tests and prompt inspection without a model
 - Structured output: JSON schema validation with automatic retry and feedback to the model
 - Tool calling and an agent loop: tools are plain Pascal functions; arguments are validated before anything runs
@@ -36,6 +37,7 @@ Models run locally and for free through [Ollama](https://ollama.com).
 6. Conversation memory, state machines, guardrails, human handover *(done)*
 7. PostgreSQL persistence *(done)*
 8. Delphi port *(done)*
+9. OpenAI-compatible cloud provider *(done)*
 
 ## Requirements
 
@@ -80,7 +82,12 @@ Free Pascal 3.2.2.
 ./bin/exchange           # a crypto exchange assistant that cannot move money on its own
 ./bin/companion -db heru # the same companion, stored in PostgreSQL
 ./bin/dbtool report       # what the event tables say about the service
+PASAI_CLOUD_API_KEY=... ./bin/cloud  # OpenAI-compatible cloud chat with SSE streaming
 ```
+
+The cloud example uses `PASAI_CLOUD_MODEL` and `PASAI_CLOUD_BASE_URL` to
+override the model and endpoint. An API key is optional for self-hosted
+OpenAI-compatible servers.
 
 ## Building with Delphi
 
