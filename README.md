@@ -8,6 +8,8 @@ dependency-free tools for building AI applications.
 
 Models run locally and for free through [Ollama](https://ollama.com).
 
+![PasAI architecture](docs/assets/pasai-architecture.png)
+
 ## Features
 
 - Chat client for Ollama, blocking and streaming

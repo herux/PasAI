@@ -14,6 +14,10 @@ unit PasAI.Http;
   line at a time, so a character split across two network packets is
   never decoded in halves.
 
+  HTTPS: certificates are always verified. In Free Pascal that takes
+  PasAI.Tls, which adds the host name check and the trusted root
+  certificates that FPC's own TLS code can miss (see that unit).
+
   Delphi note: THTTPClient writes the response into the stream while it
   arrives on Windows. On other platforms the operating system's HTTP
   stack may deliver it in larger pieces; streaming then appears in bursts,
@@ -65,7 +69,7 @@ implementation
 
 uses
   {$IFDEF FPC}
-  fphttpclient;
+  fphttpclient, PasAI.Tls;
   {$ELSE}
   System.Net.HttpClient, System.Net.URLClient;
   {$ENDIF}
@@ -170,6 +174,7 @@ begin
       Client.RequestBody := Body;   // Content-Length is added automatically
       Client.AddHeader('Content-Type', 'application/json');
       Client.IOTimeout := ATimeoutMs;
+      Client.VerifySSLCertificate := True;   // off by default in FPC
       { An empty array means every status code is accepted. }
       Client.HTTPMethod('POST', AURL, AOutput, []);
       Result := Client.ResponseStatusCode;

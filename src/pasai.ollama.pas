@@ -3,7 +3,8 @@ unit PasAI.Ollama;
 (* Client for Ollama (https://ollama.com), a local LLM server.
 
   Endpoint used:
-    POST /api/chat   body: {"model", "messages", "stream", "format", "tools", "options"}
+    POST /api/chat   body: {"model", "messages", "stream", "format", "tools",
+                            "think", "options": {"temperature", "num_ctx"}}
 
   Non-streaming : a single JSON object {"message":{"role","content"}, "done":true, ...}
   Streaming     : NDJSON, one object per line, each carrying a chunk of
@@ -16,6 +17,12 @@ unit PasAI.Ollama;
                          "tool_calls":[{"function":{"name":"x","arguments":{...}}}]}
     result   a message {"role":"tool","content":"...","tool_name":"x"}
   Unlike OpenAI, Ollama sends "arguments" as a JSON object, not as a string.
+
+  Thinking: models such as qwen3 reason in a hidden "thinking" part before
+  they answer. "think": false switches that off: much faster, sometimes less
+  careful. The thinking text, if any, comes back in "message.thinking" and
+  is not used here. Leave Think at otDefault for models without thinking;
+  some Ollama versions reject the field for them.
 
   Embeddings:
     POST /api/embed   body: {"model", "input": ["text", ...]}
@@ -38,10 +45,15 @@ const
 type
   EOllamaError = class(EPasAIError);
 
+  { otDefault sends no "think" field: the model decides. }
+  TOllamaThink = (otDefault, otOn, otOff);
+
   TOllamaClient = class(TLLMProvider)
   private
     FBaseURL: string;
     FTimeoutMs: Integer;
+    FThink: TOllamaThink;
+    FNumCtx: Integer;
     function Endpoint(const APath: string): string;
     { AFormat: a JSON schema as text, or empty for free-form text. }
     function BuildChatBody(const AMessages: TChatMessages; AStream: Boolean;
@@ -65,6 +77,11 @@ type
 
     property BaseURL: string read FBaseURL write FBaseURL;
     property TimeoutMs: Integer read FTimeoutMs write FTimeoutMs;
+    property Think: TOllamaThink read FThink write FThink;
+    { Context window in tokens (options.num_ctx); 0 keeps the model's
+      default. A conversation longer than the window is cut from the
+      front without any error, so the model silently forgets its start. }
+    property NumCtx: Integer read FNumCtx write FNumCtx;
   end;
 
   { Embeddings through Ollama's /api/embed, e.g. with bge-m3, which is
@@ -271,6 +288,8 @@ begin
   inherited Create(AModel);
   FBaseURL := ABaseURL;
   FTimeoutMs := OLLAMA_DEFAULT_TIMEOUT_MS;
+  FThink := otDefault;
+  FNumCtx := 0;
 end;
 
 function TOllamaClient.Name: string;
@@ -319,11 +338,17 @@ begin
       end;
     end;
 
-    if Temperature >= 0 then
+    if FThink <> otDefault then
+      JsonAddBool(Req, 'think', FThink = otOn);
+
+    if (Temperature >= 0) or (FNumCtx > 0) then
     begin
       Opts := JsonNewObject;
       JsonAddValue(Req, 'options', Opts);
-      JsonAddFloat(Opts, 'temperature', Temperature);
+      if Temperature >= 0 then
+        JsonAddFloat(Opts, 'temperature', Temperature);
+      if FNumCtx > 0 then
+        JsonAddInteger(Opts, 'num_ctx', FNumCtx);
     end;
 
     Result := JsonToText(Req);
