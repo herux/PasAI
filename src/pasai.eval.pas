@@ -105,7 +105,7 @@ function RunChecks(const ACase: TEvalCase; const AAnswer: string;
 { Run every case ARepeats times against AProvider and append the results to
   AResults, so several models can be collected into one result set.
   AVariant labels these results, e.g. the prompt version under test. }
-procedure RunEval(AProvider: TLLMProvider; const ACases: TEvalCases;
+procedure RunEvaluation(AProvider: TLLMProvider; const ACases: TEvalCases;
   ATarget: TEvalTarget; ARepeats: Integer; const AVariant: string;
   var AResults: TEvalResults; AOnResult: TEvalResultProc = nil);
 
@@ -409,7 +409,7 @@ begin
   end;
 end;
 
-procedure RunEval(AProvider: TLLMProvider; const ACases: TEvalCases;
+procedure RunEvaluation(AProvider: TLLMProvider; const ACases: TEvalCases;
   ATarget: TEvalTarget; ARepeats: Integer; const AVariant: string;
   var AResults: TEvalResults; AOnResult: TEvalResultProc);
 var

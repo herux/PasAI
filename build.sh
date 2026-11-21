@@ -4,18 +4,23 @@
 # Units shared by several examples live in examples/common/
 #
 # Compiler selection:
-#   - FPC=/path/to/compiler ./build.sh   uses that compiler
-#   - otherwise, if an fpc.sh wrapper sits next to the fpc in PATH
-#     (as created by fpcupdeluxe), it is used so the right fpc.cfg is loaded
-#   - otherwise, plain fpc
+#   - FPC=/path/to/compiler ./build.sh   overrides automatic detection
+#   - otherwise, use the project developer's FPC 3.2.4 fpcupdeluxe wrapper
+#   - otherwise, use an fpc.sh wrapper next to an fpc in PATH
+#   - otherwise, use plain fpc
 set -e
 cd "$(dirname "$0")"
 
 if [ -z "$FPC" ]; then
-  FPC=fpc
-  FPC_PATH=$(command -v fpc 2>/dev/null || true)
-  if [ -n "$FPC_PATH" ] && [ -x "$(dirname "$FPC_PATH")/fpc.sh" ]; then
-    FPC="$(dirname "$FPC_PATH")/fpc.sh"
+  FPC_324="$HOME/fpcupdeluxe324/fpc/bin/aarch64-darwin/fpc.sh"
+  if [ -x "$FPC_324" ]; then
+    FPC="$FPC_324"
+  else
+    FPC=fpc
+    FPC_PATH=$(command -v fpc 2>/dev/null || true)
+    if [ -n "$FPC_PATH" ] && [ -x "$(dirname "$FPC_PATH")/fpc.sh" ]; then
+      FPC="$(dirname "$FPC_PATH")/fpc.sh"
+    fi
   fi
 fi
 echo "Using compiler: $FPC"

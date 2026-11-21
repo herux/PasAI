@@ -281,11 +281,13 @@ begin
 
       UseUntrustedMarkers := False;
       GVariantPrompt := ASSISTANT_PROMPT;
-      RunEval(Provider, Cases, AssistantTarget, ARepeats, 'plain', Results, ShowResult);
+      RunEvaluation(Provider, Cases, @AssistantTarget, ARepeats, 'plain', Results,
+        @ShowResult);
 
       UseUntrustedMarkers := True;
       GVariantPrompt := ASSISTANT_PROMPT + ' ' + UNTRUSTED_DATA_NOTICE;
-      RunEval(Provider, Cases, AssistantTarget, ARepeats, 'defended', Results, ShowResult);
+      RunEvaluation(Provider, Cases, @AssistantTarget, ARepeats, 'defended', Results,
+        @ShowResult);
     finally
       Provider.Free;
     end;

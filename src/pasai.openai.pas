@@ -224,11 +224,10 @@ begin
 
   if StartsWithText(ALine, 'data:') then
     Data := Trim(Copy(ALine, 6, Length(ALine)))
-  else if StartsWithText(Trim(ALine), '{') then
-    { A non-2xx API error can arrive as a plain JSON body rather than SSE. }
-    Data := ALine;
   else
-    Exit;   // SSE event/id/retry fields do not contain model output
+    { HTTP error bodies are often formatted JSON, so a line is not guaranteed
+      to be a complete SSE event. The caller reports the non-2xx status. }
+    Exit;
 
   if Data = '[DONE]' then
   begin
@@ -288,6 +287,7 @@ function TOpenAIClient.RequestHeaders: THttpHeaders;
 var
   Offset, I: Integer;
 begin
+  Result := nil;
   SetLength(Result, Length(FExtraHeaders));
   for I := 0 to High(FExtraHeaders) do
     Result[I] := FExtraHeaders[I];

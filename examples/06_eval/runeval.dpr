@@ -148,7 +148,8 @@ begin
             GSystemPrompt := LoadPrompt(Prompts[J]);
             Writeln;
             Writeln('=== ', Models[I], ' / ', Prompts[J], ' ===');
-            RunEval(Provider, Cases, AgentTarget, Repeats, Prompts[J], Results, ShowResult);
+            RunEvaluation(Provider, Cases, @AgentTarget, Repeats, Prompts[J], Results,
+              @ShowResult);
           end;
         finally
           Provider.Free;
