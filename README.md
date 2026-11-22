@@ -83,6 +83,7 @@ Free Pascal 3.2.2.
 ./bin/companion -db heru # the same companion, stored in PostgreSQL
 ./bin/dbtool report       # what the event tables say about the service
 PASAI_CLOUD_API_KEY=... ./bin/cloud  # OpenAI-compatible cloud chat with SSE streaming
+PASAI_CLOUD_API_KEY=... ./bin/chat_cloud  # interactive cloud chat with history
 ```
 
 The cloud example uses `PASAI_CLOUD_MODEL` and `PASAI_CLOUD_BASE_URL` to
