@@ -90,9 +90,50 @@ begin
     (Copy(AText, 1, Length(APrefix)) = APrefix);
 end;
 
+{ Details some services add to an error: the code (OpenRouter puts the HTTP
+  status there) and metadata.provider_name / metadata.raw, which hold the
+  real reason behind OpenRouter's generic "Provider returned error". }
+function ErrorDetails(AError: TJSONObject): string;
+var
+  Code, Meta, Provider, Raw: TJSONValue;
+  Text: string;
+begin
+  Result := '';
+  Code := JsonFind(AError, 'code');
+  if Code <> nil then
+    if JsonKind(Code) = jkString then
+      Result := JsonAsString(Code)
+    else if JsonKind(Code) = jkNumber then
+      Result := JsonToText(Code);
+  Meta := JsonFind(AError, 'metadata');
+  if (Meta = nil) or (JsonKind(Meta) <> jkObject) then
+    Exit;
+  Provider := JsonFind(TJSONObject(Meta), 'provider_name');
+  if (Provider <> nil) and (JsonKind(Provider) = jkString) then
+  begin
+    if Result <> '' then
+      Result := Result + ', ';
+    Result := Result + 'provider ' + JsonAsString(Provider);
+  end;
+  Raw := JsonFind(TJSONObject(Meta), 'raw');
+  if Raw <> nil then
+  begin
+    if JsonKind(Raw) = jkString then
+      Text := JsonAsString(Raw)
+    else
+      Text := JsonToText(Raw);
+    if Length(Text) > 300 then
+      Text := Copy(Text, 1, 300) + '...';
+    if Result <> '' then
+      Result := Result + ': ';
+    Result := Result + Text;
+  end;
+end;
+
 procedure RaiseIfAPIError(AResponse: TJSONObject);
 var
   ErrorValue, MessageValue: TJSONValue;
+  Details: string;
 begin
   ErrorValue := JsonFind(AResponse, 'error');
   if ErrorValue = nil then
@@ -101,7 +142,12 @@ begin
   begin
     MessageValue := JsonFind(TJSONObject(ErrorValue), 'message');
     if (MessageValue <> nil) and (JsonKind(MessageValue) = jkString) then
-      raise EOpenAIError.Create('OpenAI-compatible API: ' + JsonAsString(MessageValue));
+    begin
+      Details := ErrorDetails(TJSONObject(ErrorValue));
+      if Details <> '' then
+        Details := ' (' + Details + ')';
+      raise EOpenAIError.Create('OpenAI-compatible API: ' + JsonAsString(MessageValue) + Details);
+    end;
   end;
   raise EOpenAIError.Create('OpenAI-compatible API returned an error: ' +
     JsonToText(ErrorValue));
